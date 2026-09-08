@@ -16,9 +16,12 @@ import (
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/fan"
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/hw"
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/openrgb"
+	"github.com/chr0nzz/omarchy-alienware/helper/internal/usbreset"
 )
 
 var Version = "0.1.2"
+
+var rgbResetter openrgb.Resetter = usbreset.New()
 
 const Usage = `alienwarectl <verb> [args]
 
@@ -34,10 +37,12 @@ const Usage = `alienwarectl <verb> [args]
   rgb status                     print the RGB device and zones
   rgb set <zone> <RRGGBB>        light one zone
   rgb set-all <RRGGBB>           light every zone
+  rgb set-map <RRGGBB,...>       light every LED with its own colour
   rgb mode <name>                select a lighting mode
   rgb brightness <0-100>         set the active mode brightness
   rgb identify <zone>            blink one zone red
   rgb off                        blank every LED
+  rgb reset                      USB reset the AW-ELC controller
   rgb raw                        dump the raw controller blob for debugging
   reset-fans                     write boost 0 straight to sysfs
   version                        print the binary version
@@ -263,9 +268,12 @@ func runCurve(env Env, c *client.Client, args []string) int {
 
 func runRGB(env Env, args []string) int {
 	if len(args) == 0 {
-		return emitError(env.Stdout, badRequest("rgb takes status, set, set-all, mode, brightness, identify or off"))
+		return emitError(env.Stdout, badRequest("rgb takes status, set, set-all, set-map, mode, brightness, identify, reset or off"))
 	}
-	session, err := openrgb.Open(openrgb.DefaultAddr)
+	if args[0] == "reset" {
+		return runRGBReset(env)
+	}
+	session, err := openrgb.OpenWithReset(openrgb.Addr(), rgbResetter)
 	if err != nil {
 		return emitError(env.Stdout, err)
 	}
@@ -292,10 +300,11 @@ func runRGB(env Env, args []string) int {
 		}
 		zone, _ := session.ZoneSummary(index)
 		return emitOK(env.Stdout, struct {
-			OK    bool               `json:"ok"`
-			Zone  openrgb.StatusZone `json:"zone"`
-			Color string             `json:"color"`
-		}{true, zone, openrgb.HexString(color)})
+			OK         bool               `json:"ok"`
+			Zone       openrgb.StatusZone `json:"zone"`
+			Color      string             `json:"color"`
+			ActiveMode string             `json:"activeMode"`
+		}{true, zone, openrgb.HexString(color), session.ActiveModeName()})
 
 	case "set-all":
 		if len(args) != 2 {
@@ -309,9 +318,36 @@ func runRGB(env Env, args []string) int {
 			return emitError(env.Stdout, err)
 		}
 		return emitOK(env.Stdout, struct {
-			OK    bool   `json:"ok"`
-			Color string `json:"color"`
-		}{true, openrgb.HexString(color)})
+			OK         bool   `json:"ok"`
+			Color      string `json:"color"`
+			ActiveMode string `json:"activeMode"`
+		}{true, openrgb.HexString(color), session.ActiveModeName()})
+
+	case "set-map":
+		if len(args) != 2 {
+			return emitError(env.Stdout, badRequest("rgb set-map takes a comma separated list of colours, one per LED, for example rgb set-map ff0000,00ff00,0000ff"))
+		}
+		parts := strings.Split(args[1], ",")
+		colors := make([]uint32, len(parts))
+		for i, part := range parts {
+			color, err := openrgb.ParseHex(part)
+			if err != nil {
+				return emitError(env.Stdout, badRequest("%s", err.Error()))
+			}
+			colors[i] = color
+		}
+		if err := session.SetMap(colors); err != nil {
+			return emitError(env.Stdout, err)
+		}
+		hexes := make([]string, len(colors))
+		for i, color := range colors {
+			hexes[i] = openrgb.HexString(color)
+		}
+		return emitOK(env.Stdout, struct {
+			OK         bool     `json:"ok"`
+			Colors     []string `json:"colors"`
+			ActiveMode string   `json:"activeMode"`
+		}{true, hexes, session.ActiveModeName()})
 
 	case "mode":
 		if len(args) != 2 {
@@ -357,9 +393,10 @@ func runRGB(env Env, args []string) int {
 		}
 		zone, _ := session.ZoneSummary(index)
 		return emitOK(env.Stdout, struct {
-			OK   bool               `json:"ok"`
-			Zone openrgb.StatusZone `json:"zone"`
-		}{true, zone})
+			OK         bool               `json:"ok"`
+			Zone       openrgb.StatusZone `json:"zone"`
+			ActiveMode string             `json:"activeMode"`
+		}{true, zone, session.ActiveModeName()})
 
 	case "raw":
 		serverVersion, clientVersion, body, err := session.Raw()
@@ -382,4 +419,15 @@ func runRGB(env Env, args []string) int {
 		}{true})
 	}
 	return emitError(env.Stdout, badRequest("unknown rgb verb %q", args[0]))
+}
+
+func runRGBReset(env Env) int {
+	node, err := rgbResetter.Reset()
+	if err != nil {
+		return emitError(env.Stdout, err)
+	}
+	return emitOK(env.Stdout, struct {
+		OK   bool   `json:"ok"`
+		Node string `json:"node"`
+	}{true, node})
 }

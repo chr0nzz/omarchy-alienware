@@ -299,7 +299,7 @@ Item {
   property var queue: []
 
   function enqueue(argv, label, stdinText) {
-    var job = { argv: Model.toList(argv), label: String(label || ""), stdin: String(stdinText || ""), key: Model.toList(argv).slice(0, 3).join(" ") }
+    var job = { argv: Model.toList(argv), label: String(label || ""), stdin: String(stdinText || ""), key: Model.queueKey(argv) }
     var next = []
     for (var i = 0; i < queue.length; i++) {
       if (queue[i] && queue[i].key === job.key) continue
