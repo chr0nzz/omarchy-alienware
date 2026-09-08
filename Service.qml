@@ -90,6 +90,14 @@ Item {
   property var regionColors: ({})
   property var regionOn: ({})
 
+  property var kbd: Model.normalizeKbdStatus(null)
+  property bool kbdLoaded: false
+  property string kbdError: ""
+  readonly property bool kbdPresent: kbd.present === true && kbdError === ""
+
+  property var keyColors: ({})
+  property var keyOn: ({})
+
   property string color: ""
   property int brightness: 100
   property bool lightsOn: true
@@ -103,6 +111,8 @@ Item {
   property bool stateLoaded: false
   property bool lightsRestored: false
   property int rgbRestoreTries: 0
+  property bool keyboardRestored: false
+  property int kbdRestoreTries: 0
   property bool dirReady: false
   property bool busy: false
   property string lastAction: ""
@@ -142,6 +152,8 @@ Item {
     var parsed = Model.parseState(raw)
     regionColors = parsed.regions
     regionOn = parsed.regionsOn
+    keyColors = parsed.keys
+    keyOn = parsed.keysOn
     color = parsed.color
     brightness = parsed.brightness
     lightsOn = parsed.lightsOn
@@ -154,6 +166,7 @@ Item {
       stateLoaded = true
       poll()
       refreshRgb()
+      refreshKbd()
       refreshThemePalette()
     }
   }
@@ -180,6 +193,8 @@ Item {
       savedAt: Date.now(),
       regions: regionColors,
       regionsOn: regionOn,
+      keys: keyColors,
+      keysOn: keyOn,
       color: color,
       brightness: brightness,
       lightsOn: lightsOn,
@@ -297,6 +312,43 @@ Item {
     onTriggered: {
       root.rgbRestoreTries++
       root.refreshRgb()
+    }
+  }
+
+  function refreshKbd() {
+    if (kbdProc.running) return
+    kbdProc.command = shellArgv(Model.cmdKbdStatus())
+    kbdProc.running = true
+  }
+
+  Process {
+    id: kbdProc
+    stdout: StdioCollector { id: kbdOut; waitForEnd: true }
+    onExited: function(exitCode) {
+      var result = Model.parseResult(kbdOut.text, exitCode)
+      if (result.ok) {
+        root.kbd = Model.normalizeKbdStatus(result.data)
+        root.kbdError = ""
+        root.kbdLoaded = true
+        if (!root.keyboardRestored && root.stateLoaded) {
+          root.keyboardRestored = true
+          if (root.kbd.present) root.restoreSavedKeyboard()
+        }
+      } else {
+        root.kbdError = result.error
+        root.kbdLoaded = true
+      }
+    }
+  }
+
+  Timer {
+    id: kbdRestoreRetry
+    interval: root.kbdRestoreTries < 5 ? 3000 : 30000
+    repeat: true
+    running: root.stateLoaded && !root.keyboardRestored && root.kbdRestoreTries < 30
+    onTriggered: {
+      root.kbdRestoreTries++
+      root.refreshKbd()
     }
   }
 
@@ -575,6 +627,7 @@ Item {
   function lightsOff() {
     lightsOn = false
     enqueue(Model.cmdRgbOff(), "Lights off")
+    if (kbdPresent) enqueue(Model.cmdKbdOff(), "Keyboard off")
     scheduleSave()
     return true
   }
@@ -584,6 +637,10 @@ Item {
     enqueue(Model.cmdRgbBrightness(brightness), "Brightness")
     var map = Model.effectiveRegionColors(regionColors, regionOn)
     if (Model.hasAnyKey(map)) enqueue(Model.cmdRgbSetMap(map), "Colour")
+    if (kbdPresent) {
+      var keyMap = Model.effectiveKeyColors(keyColors, keyOn)
+      if (Model.hasAnyKey(keyMap)) enqueue(Model.cmdKbdSetMap(keyMap), "Keyboard colour")
+    }
     scheduleSave()
     return true
   }
@@ -606,6 +663,82 @@ Item {
 
   function identifyRegion(id) {
     enqueue(Model.cmdRgbIdentify(id), "Identify")
+    return true
+  }
+
+  function setKeyColors(ids, hex) {
+    var clean = Model.normalizeHex(hex)
+    if (!clean) {
+      actionError = true
+      actionStatus = "That is not a hex colour"
+      return false
+    }
+    var list = Model.toList(ids)
+    if (!list.length) {
+      actionError = true
+      actionStatus = "Select at least one key first"
+      return false
+    }
+    var nextColors = {}
+    for (var k in keyColors) nextColors[k] = keyColors[k]
+    var nextOn = {}
+    for (var k2 in keyOn) nextOn[k2] = keyOn[k2]
+    var map = {}
+    for (var i = 0; i < list.length; i++) {
+      if (!Model.isKeyPaintable(Model.keyboardKeyById(list[i]))) continue
+      nextColors[list[i]] = clean
+      nextOn[list[i]] = true
+      map[list[i]] = clean
+    }
+    keyColors = nextColors
+    keyOn = nextOn
+    lightsOn = true
+    enqueue(Model.cmdKbdSetMap(map), "Key colour")
+    scheduleSave()
+    return true
+  }
+
+  function setKeyOn(ids, on) {
+    var list = Model.toList(ids)
+    if (!list.length) {
+      actionError = true
+      actionStatus = "Select at least one key first"
+      return false
+    }
+    var nextOn = {}
+    for (var k in keyOn) nextOn[k] = keyOn[k]
+    var map = {}
+    for (var i = 0; i < list.length; i++) {
+      var id = list[i]
+      if (!Model.isKeyPaintable(Model.keyboardKeyById(id))) continue
+      nextOn[id] = on === true
+      map[id] = on === true ? (Model.normalizeHex(keyColors[id]) || Model.normalizeHex(color) || "FFFFFF") : "000000"
+    }
+    keyOn = nextOn
+    if (on === true) lightsOn = true
+    enqueue(Model.cmdKbdSetMap(map), on === true ? "Key on" : "Key off")
+    scheduleSave()
+    return true
+  }
+
+  function toggleKeyOn(ids) {
+    var list = Model.toList(ids)
+    if (!list.length) return false
+    var allOn = true
+    for (var i = 0; i < list.length; i++) {
+      if (keyOn[list[i]] === false) { allOn = false; break }
+    }
+    return setKeyOn(list, !allOn)
+  }
+
+  function restoreSavedKeyboard() {
+    var steps = Model.keyboardRestoreSequence({
+      lightsOn: lightsOn,
+      keys: keyColors,
+      keysOn: keyOn
+    })
+    if (!steps.length) return false
+    for (var i = 0; i < steps.length; i++) enqueue(steps[i].argv, steps[i].label)
     return true
   }
 
@@ -644,6 +777,7 @@ Item {
     lastResult = null
     poll()
     refreshRgb()
+    refreshKbd()
     refreshThemePalette()
   }
 
@@ -730,6 +864,7 @@ Item {
     queue = []
     statusProc.running = false
     rgbProc.running = false
+    kbdProc.running = false
     writeProc.running = false
     themePaletteProc.running = false
   }

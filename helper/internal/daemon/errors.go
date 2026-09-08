@@ -7,6 +7,7 @@ import (
 
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/fan"
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/hw"
+	"github.com/chr0nzz/omarchy-alienware/helper/internal/kbd"
 )
 
 const (
@@ -36,6 +37,17 @@ func mapError(err error) *dbus.Error {
 	var derr *dbus.Error
 	if errors.As(err, &derr) {
 		return derr
+	}
+	var kerr *kbd.Error
+	if errors.As(err, &kerr) {
+		switch kerr.Code() {
+		case kbd.CodeBadRequest:
+			return dbusError(ErrNameBadRequest, err.Error())
+		case kbd.CodeNoDevice:
+			return dbusError(ErrNameHwMissing, err.Error())
+		default:
+			return dbusError(ErrNameInternal, err.Error())
+		}
 	}
 	switch {
 	case errors.Is(err, hw.ErrBadRequest), errors.Is(err, fan.ErrInvalidCurve):

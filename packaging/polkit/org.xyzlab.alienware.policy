@@ -34,4 +34,14 @@
       <allow_active>yes</allow_active>
     </defaults>
   </action>
+
+  <action id="org.xyzlab.alienware.set-keyboard">
+    <description>Change keyboard lighting</description>
+    <message>Authentication is required to change the keyboard lighting</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
 </policyconfig>

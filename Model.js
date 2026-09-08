@@ -64,12 +64,66 @@ var ERROR_MESSAGES = {
 var CURVE_NOTE = "Boost is additive. It can only push the fans above the firmware curve, never below it."
 var PL_LOCKED_NOTE = "Locked by firmware"
 var EFFECTS_NOTE = "Effects are not implemented yet. Set a colour for the selected regions instead."
+var KBD_UNMAPPED_NOTE = "Greyed out keys have not had their wire index confirmed yet and cannot take a colour."
 
 var REGIONS = [
   { id: "power", name: "Power button", ledCount: 1 },
   { id: "logo", name: "Lid logo", ledCount: 1 },
   { id: "ring-top", name: "Ring top", ledCount: 8 },
   { id: "ring-bottom", name: "Ring bottom", ledCount: 8 }
+]
+
+function kbKey(id, label, w, index) {
+  return { id: id, label: label, w: w, index: index === undefined ? null : index }
+}
+
+var KEYBOARD_ROWS = [
+  [
+    kbKey("esc", "esc", 1, 0),
+    kbKey("f1", "F1", 1, 1), kbKey("f2", "F2", 1, 2), kbKey("f3", "F3", 1, 3), kbKey("f4", "F4", 1, 4),
+    kbKey("f5", "F5", 1, 5), kbKey("f6", "F6", 1, 6), kbKey("f7", "F7", 1, 7), kbKey("f8", "F8", 1, 8),
+    kbKey("f9", "F9", 1, 9), kbKey("f10", "F10", 1, 10), kbKey("f11", "F11", 1, 11), kbKey("f12", "F12", 1, 12),
+    kbKey("home", "home", 1, 13), kbKey("end", "end", 1, 14), kbKey("del", "del", 1, 15)
+  ],
+  [
+    kbKey("grave", "`", 1, 16),
+    kbKey("1", "1", 1, 17), kbKey("2", "2", 1, 18), kbKey("3", "3", 1, 19), kbKey("4", "4", 1, 20),
+    kbKey("5", "5", 1, 21), kbKey("6", "6", 1, 22), kbKey("7", "7", 1, 23), kbKey("8", "8", 1, 28),
+    kbKey("9", "9", 1, 29), kbKey("0", "0", 1, 30), kbKey("minus", "-", 1, 31), kbKey("equals", "=", 1, 32),
+    kbKey("backspace", "backspace", 2, 34)
+  ],
+  [
+    kbKey("tab", "tab", 1.5, 40),
+    kbKey("q", "Q", 1, 42), kbKey("w", "W", 1, 43), kbKey("e", "E", 1, 44), kbKey("r", "R", 1, 45),
+    kbKey("t", "T", 1, 46), kbKey("y", "Y", 1, 47), kbKey("u", "U", 1, 48), kbKey("i", "I", 1, 49),
+    kbKey("o", "O", 1, 50), kbKey("p", "P", 1, 51),
+    kbKey("lbracket", "[", 1, 52), kbKey("rbracket", "]", 1, 53), kbKey("backslash", "\\", 1.5, 55)
+  ],
+  [
+    kbKey("caps", "caps", 1.75, 60),
+    kbKey("a", "A", 1, 62), kbKey("s", "S", 1, 63), kbKey("d", "D", 1, 64), kbKey("f", "F", 1, 65), kbKey("g", "G", 1, 66),
+    kbKey("h", "H", 1, 67), kbKey("j", "J", 1, 68), kbKey("k", "K", 1, 69), kbKey("l", "L", 1, 70),
+    kbKey("semicolon", ";", 1, 71), kbKey("quote", "'", 1, 72), kbKey("enter", "enter", 2.25, 74)
+  ],
+  [
+    kbKey("lshift", "shift", 2.25, 78),
+    kbKey("z", "Z", 1, 83), kbKey("x", "X", 1, 84), kbKey("c", "C", 1, 85), kbKey("v", "V", 1, 86), kbKey("b", "B", 1, 87),
+    kbKey("n", "N", 1, 88), kbKey("m", "M", 1, 89), kbKey("comma", ",", 1, 90), kbKey("period", ".", 1, 91), kbKey("slash", "/", 1, 92),
+    kbKey("rshift", "shift", 1.75, 94), kbKey("pageup", "pg up", 1, 114)
+  ],
+  [
+    kbKey("lctrl", "ctrl", 1.25, 100), kbKey("fn", "fn", 1.25, 101), kbKey("lsuper", "super", 1.25, 102), kbKey("lalt", "alt", 1.25, 104),
+    kbKey("space", "", 6),
+    kbKey("ralt", "alt", 1.25, 111), kbKey("rsuper", "super", 1.25, 109), kbKey("rctrl", "ctrl", 1.25, 112),
+    kbKey("left", "left", 1, 133), kbKey("pagedown", "pg dn", 1, 134), kbKey("right", "right", 1, 135)
+  ]
+]
+
+var KEYBOARD_MEDIA_COLUMN = [
+  kbKey("micmute", "mic mute", 1, 24),
+  kbKey("volmute", "vol mute", 1, 25),
+  kbKey("volup", "vol up", 1, 26),
+  kbKey("voldown", "vol down", 1, 27)
 ]
 
 function toList(value) {
@@ -840,6 +894,87 @@ function restoreSequence(state) {
   return out
 }
 
+function keyboardAllKeys() {
+  var out = []
+  for (var r = 0; r < KEYBOARD_ROWS.length; r++) out = out.concat(KEYBOARD_ROWS[r])
+  return out.concat(KEYBOARD_MEDIA_COLUMN)
+}
+
+function keyboardRowWeight(row) {
+  var list = toList(row)
+  var sum = 0
+  for (var i = 0; i < list.length; i++) sum += toNumber(list[i] ? list[i].w : 0, 0)
+  return sum || 1
+}
+
+function isKeyPaintable(key) {
+  return !!key && typeof key.index === "number" && key.index >= 0
+}
+
+function keyboardKeyById(id) {
+  var want = String(id || "")
+  var all = keyboardAllKeys()
+  for (var i = 0; i < all.length; i++) if (all[i].id === want) return all[i]
+  return null
+}
+
+function keyboardPaintableIds() {
+  var all = keyboardAllKeys()
+  var out = []
+  for (var i = 0; i < all.length; i++) if (isKeyPaintable(all[i])) out.push(all[i].id)
+  return out
+}
+
+function normalizeKeyColorMap(raw) {
+  var src = isObject(raw) ? raw : {}
+  var ids = keyboardPaintableIds()
+  var out = {}
+  for (var i = 0; i < ids.length; i++) {
+    var hex = normalizeHex(src[ids[i]])
+    if (hex) out[ids[i]] = hex
+  }
+  return out
+}
+
+function normalizeKeyOnMap(raw) {
+  var src = isObject(raw) ? raw : {}
+  var ids = keyboardPaintableIds()
+  var out = {}
+  for (var i = 0; i < ids.length; i++) out[ids[i]] = src[ids[i]] === false ? false : true
+  return out
+}
+
+function effectiveKeyColors(keys, keysOn) {
+  var src = isObject(keys) ? keys : {}
+  var onMap = normalizeKeyOnMap(keysOn)
+  var ids = keyboardPaintableIds()
+  var out = {}
+  for (var i = 0; i < ids.length; i++) {
+    var id = ids[i]
+    if (onMap[id] === false) { out[id] = "000000"; continue }
+    var hex = normalizeHex(src[id])
+    if (hex) out[id] = hex
+  }
+  return out
+}
+
+function keyboardRestoreSequence(state) {
+  var out = []
+  if (!isObject(state) || state.lightsOn !== true) return out
+  var map = effectiveKeyColors(state.keys, state.keysOn)
+  if (hasAnyKey(map)) out.push({ argv: cmdKbdSetMap(map), label: "Keyboard colour" })
+  return out
+}
+
+function normalizeKbdStatus(raw) {
+  var src = isObject(raw) ? raw : {}
+  return {
+    ok: src.ok !== false,
+    present: src.present === true,
+    keyCount: toInt(src.keyCount, 0)
+  }
+}
+
 function paletteIsFlat(swatches) {
   var list = toList(swatches)
   if (list.length < 2) return false
@@ -989,6 +1124,8 @@ function parseState(raw) {
     version: toInt(src.version, 1),
     regions: regionColorPayload(src.regions),
     regionsOn: normalizeRegionOnMap(src.regionsOn),
+    keys: normalizeKeyColorMap(src.keys),
+    keysOn: normalizeKeyOnMap(src.keysOn),
     color: normalizeHex(src.color),
     brightness: src.brightness === undefined || src.brightness === null ? 100 : clampBrightness(src.brightness),
     lightsOn: src.lightsOn !== false,
@@ -1009,6 +1146,8 @@ function buildStatePayload(state) {
     savedAt: toInt(src.savedAt, 0),
     regions: regionColorPayload(src.regions),
     regionsOn: normalizeRegionOnMap(src.regionsOn),
+    keys: normalizeKeyColorMap(src.keys),
+    keysOn: normalizeKeyOnMap(src.keysOn),
     color: normalizeHex(src.color),
     brightness: clampBrightness(src.brightness),
     lightsOn: src.lightsOn !== false,
@@ -1046,6 +1185,24 @@ function cmdRgbSetMap(map) {
 function cmdRgbBrightness(value) { return ["alienwarectl", "rgb", "brightness", String(clampBrightness(value))] }
 function cmdRgbIdentify(regionId) { return ["alienwarectl", "rgb", "identify", String(regionId || "")] }
 function cmdRgbOff() { return ["alienwarectl", "rgb", "off"] }
+function cmdKbdStatus() { return ["alienwarectl", "kbd", "status"] }
+function cmdKbdSetMap(map) {
+  var src = isObject(map) ? map : {}
+  var pairs = []
+  for (var id in src) {
+    var key = keyboardKeyById(id)
+    if (!isKeyPaintable(key)) continue
+    var hex = normalizeHex(src[id])
+    if (!hex) continue
+    pairs.push({ index: key.index, hex: hex })
+  }
+  pairs.sort(function(a, b) { return a.index - b.index })
+  var parts = []
+  for (var i = 0; i < pairs.length; i++) parts.push(pairs[i].index + "=" + pairs[i].hex)
+  return ["alienwarectl", "kbd", "set-map", parts.join(",")]
+}
+function cmdKbdSetAll(hex) { return ["alienwarectl", "kbd", "set-all", normalizeHex(hex)] }
+function cmdKbdOff() { return ["alienwarectl", "kbd", "off"] }
 function cmdVersion() { return ["alienwarectl", "version"] }
 
 function queueKey(argv) {

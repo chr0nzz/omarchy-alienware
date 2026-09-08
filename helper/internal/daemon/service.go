@@ -10,6 +10,7 @@ import (
 
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/fan"
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/hw"
+	"github.com/chr0nzz/omarchy-alienware/helper/internal/kbd"
 )
 
 const customProfile = "custom"
@@ -27,6 +28,10 @@ type Service struct {
 	cancel       context.CancelFunc
 	done         chan struct{}
 	savedProfile string
+
+	kbdMu           sync.Mutex
+	openKeyboard    func() (*kbd.Device, error)
+	keyboardPresent func() bool
 }
 
 func NewService(reader *hw.Reader, auth authorizer, logger *log.Logger) *Service {
@@ -37,10 +42,12 @@ func NewService(reader *hw.Reader, auth authorizer, logger *log.Logger) *Service
 		logger = log.Default()
 	}
 	return &Service{
-		reader: reader,
-		auth:   auth,
-		logger: logger,
-		last:   fan.Curve{Interval: 2, Hysteresis: 3, CPU: []fan.Point{}, GPU: []fan.Point{}},
+		reader:          reader,
+		auth:            auth,
+		logger:          logger,
+		last:            fan.Curve{Interval: 2, Hysteresis: 3, CPU: []fan.Point{}, GPU: []fan.Point{}},
+		openKeyboard:    kbd.OpenDefault,
+		keyboardPresent: kbd.Present,
 	}
 }
 

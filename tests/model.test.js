@@ -1057,3 +1057,149 @@ test("colorToHex reads the shell theme colour in every form it arrives", () => {
   assert.equal(Model.colorToHex("nonsense"), "")
   assert.equal(Model.colorToHex("#12345"), "")
 })
+
+test("the confirmed key indices match the machine that was probed", () => {
+  const want = {
+    esc: 0, f1: 1, f12: 12, home: 13, end: 14, del: 15,
+    grave: 16, "1": 17, "7": 23,
+    micmute: 24, volmute: 25, volup: 26, voldown: 27,
+    "8": 28, "0": 30, minus: 31, equals: 32, backspace: 34,
+    tab: 40, q: 42, i: 49, o: 50, rbracket: 53, backslash: 55,
+    caps: 60, a: 62, k: 69, l: 70, quote: 72, enter: 74,
+    lshift: 78, z: 83, c: 85, v: 86, slash: 92, rshift: 94,
+    lctrl: 100, fn: 101, lsuper: 102, lalt: 104, rsuper: 109,
+    ralt: 111, rctrl: 112, pageup: 114,
+    left: 133, pagedown: 134, right: 135
+  }
+  for (const id of Object.keys(want)) {
+    assert.equal(Model.keyboardKeyById(id).index, want[id], id)
+  }
+})
+
+test("space is the only key on this layout with no led behind it", () => {
+  const space = Model.keyboardKeyById("space")
+  assert.equal(Model.isKeyPaintable(space), false)
+  const unpaintable = Model.keyboardAllKeys().filter(k => !Model.isKeyPaintable(k))
+  assert.deepEqual(unpaintable.map(k => k.id), ["space"])
+})
+
+test("isKeyPaintable accepts a real index including zero and rejects everything else", () => {
+  assert.equal(Model.isKeyPaintable({ index: 0 }), true)
+  assert.equal(Model.isKeyPaintable({ index: 47 }), true)
+  assert.equal(Model.isKeyPaintable({ index: null }), false)
+  assert.equal(Model.isKeyPaintable({ index: -1 }), false)
+  assert.equal(Model.isKeyPaintable(null), false)
+})
+
+test("keyboardKeyById returns null for an id that does not exist on this layout", () => {
+  assert.equal(Model.keyboardKeyById("nonexistent"), null)
+})
+
+test("keyboardPaintableIds lists exactly the keys with a confirmed index", () => {
+  const ids = Model.keyboardPaintableIds()
+  assert.equal(ids.length, 84)
+  assert.ok(ids.indexOf("esc") !== -1)
+  assert.ok(ids.indexOf("backslash") !== -1)
+  assert.ok(ids.indexOf("caps") !== -1)
+  assert.ok(ids.indexOf("space") === -1)
+})
+
+test("keyboardRowWeight sums the relative widths of a row", () => {
+  const backspaceRow = Model.KEYBOARD_ROWS[1]
+  const sum = backspaceRow.reduce((total, key) => total + key.w, 0)
+  assert.equal(Model.keyboardRowWeight(backspaceRow), sum)
+  assert.equal(Model.keyboardRowWeight([]), 1)
+})
+
+test("cmdKbdStatus, set-all and off match the contract verbs", () => {
+  assert.deepEqual(Model.cmdKbdStatus(), ["alienwarectl", "kbd", "status"])
+  assert.deepEqual(Model.cmdKbdSetAll("#f00"), ["alienwarectl", "kbd", "set-all", "FF0000"])
+  assert.deepEqual(Model.cmdKbdOff(), ["alienwarectl", "kbd", "off"])
+})
+
+test("cmdKbdSetMap resolves ids to their wire index and orders the pairs numerically", () => {
+  const argv = Model.cmdKbdSetMap({ tab: "#00f", esc: "#f00", del: "#0f0" })
+  assert.deepEqual(argv, ["alienwarectl", "kbd", "set-map", "0=FF0000,15=00FF00,40=0000FF"])
+})
+
+test("cmdKbdSetMap drops keys with no led and keys that do not exist", () => {
+  const argv = Model.cmdKbdSetMap({ esc: "#f00", nonexistent: "#0f0", space: "#fff" })
+  assert.deepEqual(argv, ["alienwarectl", "kbd", "set-map", "0=FF0000"])
+})
+
+test("cmdKbdSetMap survives an empty map", () => {
+  assert.deepEqual(Model.cmdKbdSetMap({}), ["alienwarectl", "kbd", "set-map", ""])
+})
+
+test("normalizeKbdStatus reads the present flag and key count", () => {
+  const present = Model.normalizeKbdStatus({ ok: true, present: true, keyCount: 136 })
+  assert.equal(present.present, true)
+  assert.equal(present.keyCount, 136)
+  const missing = Model.normalizeKbdStatus({ ok: true, present: false })
+  assert.equal(missing.present, false)
+  assert.equal(Model.normalizeKbdStatus(null).present, false)
+})
+
+test("normalizeKeyColorMap keeps only paintable keys with a valid colour", () => {
+  const map = Model.normalizeKeyColorMap({ esc: "#f00", space: "#0f0", nonexistent: "#00f", tab: "not a colour" })
+  assert.deepEqual(map, { esc: "FF0000" })
+})
+
+test("normalizeKeyOnMap defaults every paintable key to on", () => {
+  const onMap = Model.normalizeKeyOnMap({ esc: false })
+  assert.equal(onMap.esc, false)
+  assert.equal(onMap.tab, true)
+  assert.equal(Object.keys(onMap).length, 84)
+})
+
+test("effectiveKeyColors sends black for an off key and the remembered colour for an on key", () => {
+  const map = Model.effectiveKeyColors({ esc: "FF0000", tab: "00FF00" }, { esc: false })
+  assert.equal(map.esc, "000000")
+  assert.equal(map.tab, "00FF00")
+  assert.equal(map.del, undefined)
+})
+
+test("keyboardRestoreSequence sends the effective key colours in one set-map call when the lights are on", () => {
+  const steps = Model.keyboardRestoreSequence({ lightsOn: true, keys: { esc: "FF0000" }, keysOn: {} })
+  assert.equal(steps.length, 1)
+  assert.deepEqual(steps[0].argv, Model.cmdKbdSetMap({ esc: "FF0000" }))
+})
+
+test("keyboardRestoreSequence does nothing when the lights are off or nothing is painted", () => {
+  assert.deepEqual(Model.keyboardRestoreSequence({ lightsOn: false, keys: { esc: "FF0000" } }), [])
+  assert.deepEqual(Model.keyboardRestoreSequence({ lightsOn: true, keys: {} }), [])
+  assert.deepEqual(Model.keyboardRestoreSequence(null), [])
+})
+
+test("parseState reads saved key colours and per key power", () => {
+  const state = Model.parseState(JSON.stringify({
+    version: 2,
+    keys: { esc: "#f00", space: "#0f0", nonexistent: "#00f" },
+    keysOn: { esc: false }
+  }))
+  assert.deepEqual(state.keys, { esc: "FF0000" })
+  assert.equal(state.keysOn.esc, false)
+  assert.equal(state.keysOn.tab, true)
+})
+
+test("parseState defaults every key to on and no keys coloured when the file predates keyboard support", () => {
+  const state = Model.parseState(JSON.stringify({ version: 2, regions: { power: "#f00" } }))
+  assert.deepEqual(state.keys, {})
+  assert.equal(state.keysOn.esc, true)
+  assert.equal(Object.keys(state.keysOn).length, 84)
+})
+
+test("buildStatePayload round trips per key colour and power alongside the region state", () => {
+  const payload = Model.buildStatePayload({
+    regions: { power: "#f00" },
+    keys: { esc: "#00f", tab: "#0f0" },
+    keysOn: { esc: false },
+    color: "#f00",
+    brightness: 70,
+    lightsOn: true
+  })
+  const back = Model.parseState(JSON.stringify(payload))
+  assert.deepEqual(back.keys, { esc: "0000FF", tab: "00FF00" })
+  assert.equal(back.keysOn.esc, false)
+  assert.equal(back.keysOn.tab, true)
+})

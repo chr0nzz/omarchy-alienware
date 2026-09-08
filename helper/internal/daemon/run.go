@@ -38,6 +38,16 @@ const introspectXML = `<node>
       <arg direction="in" type="u" name="constraint"/>
       <arg direction="in" type="u" name="watts"/>
     </method>
+    <method name="KeyboardStatus">
+      <arg direction="out" type="s"/>
+    </method>
+    <method name="SetKeyboardKeys">
+      <arg direction="in" type="s" name="keys"/>
+    </method>
+    <method name="SetKeyboardAll">
+      <arg direction="in" type="s" name="color"/>
+    </method>
+    <method name="KeyboardOff"/>
   </interface>` + introspect.IntrospectDataString + `</node>`
 
 var ppdNames = []string{
@@ -80,13 +90,17 @@ func Run(reader *hw.Reader, logger *log.Logger) error {
 	svc := NewService(reader, &polkitAuthorizer{conn: conn}, logger)
 
 	table := map[string]any{
-		"Status":        svc.Status,
-		"SetProfile":    svc.SetProfile,
-		"SetBoost":      svc.SetBoost,
-		"ApplyCurve":    svc.ApplyCurve,
-		"StopCurve":     svc.StopCurve,
-		"SetTurbo":      svc.SetTurbo,
-		"SetPowerLimit": svc.SetPowerLimit,
+		"Status":          svc.Status,
+		"SetProfile":      svc.SetProfile,
+		"SetBoost":        svc.SetBoost,
+		"ApplyCurve":      svc.ApplyCurve,
+		"StopCurve":       svc.StopCurve,
+		"SetTurbo":        svc.SetTurbo,
+		"SetPowerLimit":   svc.SetPowerLimit,
+		"KeyboardStatus":  svc.KeyboardStatus,
+		"SetKeyboardKeys": svc.SetKeyboardKeys,
+		"SetKeyboardAll":  svc.SetKeyboardAll,
+		"KeyboardOff":     svc.KeyboardOff,
 	}
 	if err := conn.ExportMethodTable(table, dbus.ObjectPath(ObjectPath), Interface); err != nil {
 		return fmt.Errorf("cannot export %s: %w", Interface, err)

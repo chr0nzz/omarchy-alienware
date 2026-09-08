@@ -18,7 +18,7 @@ Plugin id `xyzlab.alienware`. Two parts: a Quickshell plugin that runs unprivile
 | PL1 / PL2 / peak | `intel-rapl:0` | Write if firmware permits |
 | Fan boost | `fanN_boost` | Write, additive only |
 | Chassis RGB | AlienFX ELC over `/dev/hidraw0` | Write, no root |
-| Keyboard RGB | Darfon controller `0d62:babc` | In progress, see below |
+| Keyboard RGB (per key) | Darfon AlienFX APIv5 over `/dev/hidraw1` | Write, root only, see below |
 | Battery charge limit | none | Absent on this model |
 | GPU MUX / dynamic boost | none | Absent on this model |
 
@@ -43,8 +43,28 @@ mapped from the real, sparse hardware zone ids:
 | `ring-top` | Ring top | 8 | 8-15 |
 | `ring-bottom` | Ring bottom | 8 | 16-23 |
 
-The keyboard is a separate Darfon controller (`0d62:babc`), root-only with no user ACL. It is not
-driven by `alienwarectl` yet and keeps whatever colour it last had.
+## Keyboard
+
+The keyboard is a separate Darfon controller (`0d62:babc`), speaking AlienFX APIv5 over
+`/dev/hidraw1` as 64 byte HID feature reports on feature id `0xcc`. It exposes 136 individually
+addressable keys.
+
+This node has no udev rule and stays root-only, on purpose: it is the same hidraw node the kernel
+uses as the keyboard's input interface, so granting the logged-in session an ACL on it would let
+any process running as that user read keystrokes. All keyboard writes go through the root daemon
+over D-Bus, gated by the `org.xyzlab.alienware.set-keyboard` polkit action, the same pattern as the
+fan and profile controls.
+
+| Verb | Effect |
+| --- | --- |
+| `kbd status` | Report presence and key count, `present:false` cleanly if the controller is absent |
+| `kbd set-map <idx=RRGGBB,...>` | Light named keys in one transaction |
+| `kbd set-all <RRGGBB>` | Light every key |
+| `kbd off` | Blank every key |
+
+Every write, whatever its shape, is applied as a single open-device transaction. This controller
+family wedges under write pressure, so the daemon never re-opens the device per key and serialises
+keyboard calls against each other.
 
 ## Privilege
 
@@ -142,12 +162,20 @@ alienwarectl rgb brightness 75
 alienwarectl rgb identify ring-top
 alienwarectl rgb off
 alienwarectl rgb reset
+alienwarectl kbd status
+alienwarectl kbd set-map 0=ff0000,4=00ff00
+alienwarectl kbd set-all ff8800
+alienwarectl kbd off
 ```
 
 `rgb set`, `rgb identify` and the `region=colour` pairs in `rgb set-map` take a region id from the
 [RGB regions](#rgb-regions) table: `power`, `logo`, `ring-top` or `ring-bottom`. An unknown region
 id is a `bad-request` error that names the valid ones. `rgb mode` is recognised but always answers
 `not-supported`, lighting effects are not implemented yet.
+
+`kbd` verbs are daemon clients like `profile`, `boost` and `pl`: they never open the keyboard's
+hidraw node directly, only the root daemon does. `idx` in `kbd set-map` is the raw wire key index,
+0-135.
 
 Every command prints JSON and exits non-zero on failure.
 
@@ -191,11 +219,11 @@ Verified on hardware:
 
 In progress:
 
-- **Keyboard lighting.** The keyboard is a separate Darfon controller speaking AlienFX APIv5. It
-  exposes a single hidraw node which is the keyboard input interface, so it will stay root-only:
-  granting the session an ACL there would let any process running as that user read keystrokes.
-  Lighting will be driven through the existing root daemon over D-Bus, gated by a polkit action,
-  in the same pattern as the fan and profile controls.
+- **Keyboard lighting.** The AlienFX APIv5 protocol (`all` and `key <n>`) was proven directly
+  against the real controller with a standalone spike CLI: lighting every key, lighting ESC alone,
+  and confirming the kernel keyboard driver stays bound throughout. That protocol code is now
+  promoted into the helper and wired up end to end, the daemon methods, the polkit gate and the
+  `kbd` CLI verbs, but the daemon-mediated path itself is not yet re-verified against hardware.
 
 Not implemented:
 

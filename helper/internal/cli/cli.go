@@ -46,6 +46,10 @@ const Usage = `alienwarectl <verb> [args]
   rgb identify <region>             blink one region red
   rgb off                           blank every region
   rgb reset                         USB reset the AW-ELC controller
+  kbd status                        print keyboard presence and key count
+  kbd set-map <idx=RRGGBB,...>      light named keys in one transaction
+  kbd set-all <RRGGBB>              light every key
+  kbd off                           blank every key
   reset-fans                        write boost 0 straight to sysfs
   version                           print the binary version
 `
@@ -213,6 +217,9 @@ func runDaemonVerb(env Env, args []string) int {
 			Constraint int  `json:"constraint"`
 			Watts      int  `json:"watts"`
 		}{true, pl, constraint, watts})
+
+	case "kbd":
+		return runKbd(env, c, args[1:])
 	}
 
 	io.WriteString(env.Stderr, Usage)
@@ -494,4 +501,100 @@ func runRGBReset(env Env) int {
 		OK   bool   `json:"ok"`
 		Node string `json:"node"`
 	}{true, node})
+}
+
+func runKbd(env Env, c *client.Client, args []string) int {
+	if len(args) == 0 {
+		return emitError(env.Stdout, badRequest("kbd takes status, set-map, set-all or off"))
+	}
+	switch args[0] {
+	case "status":
+		return runKbdStatus(env, c)
+	case "set-map":
+		return runKbdSetMap(env, c, args[1:])
+	case "set-all":
+		return runKbdSetAll(env, c, args[1:])
+	case "off":
+		return runKbdOff(env, c)
+	}
+	return emitError(env.Stdout, badRequest("unknown kbd verb %q", args[0]))
+}
+
+func runKbdStatus(env Env, c *client.Client) int {
+	payload, err := c.KeyboardStatus()
+	if err != nil {
+		return emitError(env.Stdout, err)
+	}
+	return emitRaw(env.Stdout, payload)
+}
+
+func parseKeyColorMapDisplay(s string) (map[string]string, error) {
+	parts := strings.Split(s, ",")
+	out := map[string]string{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 || strings.TrimSpace(kv[0]) == "" {
+			return nil, badRequest("kbd set-map entries must be idx=RRGGBB, got %q", part)
+		}
+		idx := strings.TrimSpace(kv[0])
+		if _, err := strconv.Atoi(idx); err != nil {
+			return nil, badRequest("kbd set-map key index must be a whole number, got %q", idx)
+		}
+		r, g, b, cerr := parseHexColor(kv[1])
+		if cerr != nil {
+			return nil, cerr
+		}
+		out[idx] = hexColor(r, g, b)
+	}
+	if len(out) == 0 {
+		return nil, badRequest("kbd set-map needs at least one idx=RRGGBB pair")
+	}
+	return out, nil
+}
+
+func runKbdSetMap(env Env, c *client.Client, args []string) int {
+	if len(args) != 1 {
+		return emitError(env.Stdout, badRequest("kbd set-map takes a comma separated list of idx=RRGGBB pairs, for example kbd set-map 0=ff0000,4=00ff00"))
+	}
+	keys, perr := parseKeyColorMapDisplay(args[0])
+	if perr != nil {
+		return emitError(env.Stdout, perr)
+	}
+	if err := c.SetKeyboardKeys(args[0]); err != nil {
+		return emitError(env.Stdout, err)
+	}
+	return emitOK(env.Stdout, struct {
+		OK   bool              `json:"ok"`
+		Keys map[string]string `json:"keys"`
+	}{true, keys})
+}
+
+func runKbdSetAll(env Env, c *client.Client, args []string) int {
+	if len(args) != 1 {
+		return emitError(env.Stdout, badRequest("kbd set-all takes a colour, for example kbd set-all ff0000"))
+	}
+	r, g, b, cerr := parseHexColor(args[0])
+	if cerr != nil {
+		return emitError(env.Stdout, cerr)
+	}
+	if err := c.SetKeyboardAll(args[0]); err != nil {
+		return emitError(env.Stdout, err)
+	}
+	return emitOK(env.Stdout, struct {
+		OK    bool   `json:"ok"`
+		Color string `json:"color"`
+	}{true, hexColor(r, g, b)})
+}
+
+func runKbdOff(env Env, c *client.Client) int {
+	if err := c.KeyboardOff(); err != nil {
+		return emitError(env.Stdout, err)
+	}
+	return emitOK(env.Stdout, struct {
+		OK bool `json:"ok"`
+	}{true})
 }

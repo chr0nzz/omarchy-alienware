@@ -122,3 +122,23 @@ func (c *Client) SetTurbo(on bool) error {
 func (c *Client) SetPowerLimit(constraint, watts uint32) error {
 	return MapDBusError(c.call("SetPowerLimit", constraint, watts).Store())
 }
+
+func (c *Client) KeyboardStatus() (string, error) {
+	var out string
+	if err := c.call("KeyboardStatus").Store(&out); err != nil {
+		return "", MapDBusError(err)
+	}
+	return out, nil
+}
+
+func (c *Client) SetKeyboardKeys(keys string) error {
+	return MapDBusError(c.call("SetKeyboardKeys", keys).Store())
+}
+
+func (c *Client) SetKeyboardAll(color string) error {
+	return MapDBusError(c.call("SetKeyboardAll", color).Store())
+}
+
+func (c *Client) KeyboardOff() error {
+	return MapDBusError(c.call("KeyboardOff").Store())
+}

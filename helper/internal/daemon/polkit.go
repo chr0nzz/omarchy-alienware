@@ -12,9 +12,10 @@ const (
 	polkitPath      = "/org/freedesktop/PolicyKit1/Authority"
 	polkitInterface = "org.freedesktop.PolicyKit1.Authority"
 
-	ActionSetProfile = "org.xyzlab.alienware.set-profile"
-	ActionSetFan     = "org.xyzlab.alienware.set-fan"
-	ActionSetPower   = "org.xyzlab.alienware.set-power"
+	ActionSetProfile  = "org.xyzlab.alienware.set-profile"
+	ActionSetFan      = "org.xyzlab.alienware.set-fan"
+	ActionSetPower    = "org.xyzlab.alienware.set-power"
+	ActionSetKeyboard = "org.xyzlab.alienware.set-keyboard"
 
 	authorizeTimeout = 30 * time.Second
 

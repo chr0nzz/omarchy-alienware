@@ -103,6 +103,10 @@ Panel {
   readonly property bool rgbConnected: service ? service.rgbConnected : false
   readonly property string rgbError: service ? service.rgbError : ""
 
+  property var keySelection: []
+  readonly property var kbd: service ? service.kbd : Model.normalizeKbdStatus(null)
+  readonly property bool kbdPresent: service ? service.kbdPresent : false
+
   property int powerCursor: 0
   readonly property var constraints: Model.toList(hw.power.constraints)
   readonly property int powerFieldCount: constraints.length + 1
@@ -231,11 +235,47 @@ Panel {
     service.toggleRegionOn(ids)
   }
 
+  function toggleKeySelection(id) {
+    var list = keySelection.slice()
+    var idx = list.indexOf(id)
+    if (idx === -1) list.push(id)
+    else list.splice(idx, 1)
+    keySelection = list
+  }
+
+  function addKeysToSelection(ids) {
+    var list = keySelection.slice()
+    var incoming = Model.toList(ids)
+    for (var i = 0; i < incoming.length; i++) {
+      if (list.indexOf(incoming[i]) === -1) list.push(incoming[i])
+    }
+    keySelection = list
+  }
+
+  function selectAllKeys() {
+    keySelection = Model.keyboardPaintableIds()
+  }
+
+  function clearKeySelection() {
+    keySelection = []
+  }
+
+  function toggleKeySelectionPower() {
+    if (!service) return
+    var ids = keySelection.slice()
+    if (!ids.length) return
+    service.toggleKeyOn(ids)
+  }
+
   function applyColorField() {
     if (!service) return
     var text = colorField.text
     if (!Model.validHex(text)) {
       service.reportAction(false, "Enter a colour as RRGGBB")
+      return
+    }
+    if (keySelection.length) {
+      service.setKeyColors(keySelection, text)
       return
     }
     service.setRegionColors(regionSelection, text)
@@ -321,7 +361,7 @@ Panel {
   readonly property string footerText: {
     if (settingsOpen) return "⏎ save · esc cancel"
     if (tab === "fans") return "h/l tab · j/k point · +/- boost · 1-4 preset · a apply · s settings · esc"
-    if (tab === "rgb") return "h/l tab · j/k region · space select · a all · x clear · p power · c colour · i identify · t theme sync · esc"
+    if (tab === "rgb") return "h/l tab · j/k region · space select · click/drag keys · a/x regions · K/X keys · p power · c colour · i identify · t theme sync · esc"
     return "h/l tab · j/k field · +/- adjust · 1-4 mode · p profiles · w save · esc"
   }
 
@@ -363,7 +403,9 @@ Panel {
       case "i": var current = regions[regionCursor]; if (current) service.identifyRegion(current.id); break
       case "a": selectAllRegions(); break
       case "x": clearRegionSelection(); break
-      case "p": toggleRegionPower(); break
+      case "K": selectAllKeys(); break
+      case "X": clearKeySelection(); break
+      case "p": if (keySelection.length) toggleKeySelectionPower(); else toggleRegionPower(); break
       default: break
       }
       return
@@ -833,6 +875,84 @@ Panel {
               descriptionSize: Style.font.caption
               onClicked: if (root.service) root.service.toggleThemeSync()
             }
+          }
+
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(keyboardHeader.implicitHeight, keyboardActions.implicitHeight)
+            visible: root.kbdPresent
+
+            PanelSectionHeader {
+              id: keyboardHeader
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: "KEYBOARD"
+              foreground: root.fg
+              fontFamily: root.fontFamily
+            }
+
+            Row {
+              id: keyboardActions
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(6)
+
+              Button {
+                text: "Select all"
+                bordered: true
+                foreground: root.fg
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                tooltipText: "Select every mapped key (K)"
+                onClicked: root.selectAllKeys()
+              }
+
+              Button {
+                text: "Clear"
+                bordered: true
+                foreground: root.fg
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                tooltipText: "Clear the key selection (X)"
+                onClicked: root.clearKeySelection()
+              }
+
+              Button {
+                text: root.keySelection.length && root.service && root.service.keyOn[root.keySelection[0]] === false ? "Turn on" : "Turn off"
+                bordered: true
+                enabled: root.keySelection.length > 0
+                foreground: root.fg
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                tooltipText: "Toggle the selected keys on or off (p)"
+                onClicked: root.toggleKeySelectionPower()
+              }
+            }
+          }
+
+          KeyboardMap {
+            width: parent.width
+            visible: root.kbdPresent
+            present: root.kbdPresent
+            keyColors: root.service ? root.service.keyColors : ({})
+            keyOn: root.service ? root.service.keyOn : ({})
+            selection: root.keySelection
+            fg: root.fg
+            dim: root.dim
+            accent: root.accent
+            fontFamily: root.fontFamily
+            onToggleRequested: function(keyId) { root.toggleKeySelection(keyId) }
+            onDragSelectRequested: function(keyIds) { root.addKeysToSelection(keyIds) }
+          }
+
+          Text {
+            width: parent.width
+            wrapMode: Text.Wrap
+            visible: root.kbdPresent
+            text: Model.KBD_UNMAPPED_NOTE
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
           }
 
           Item {
