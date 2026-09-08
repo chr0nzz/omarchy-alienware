@@ -70,7 +70,7 @@ strongest profile. With it, `performance` becomes G-Mode:
 echo "options alienware_wmi force_gmode=1" | sudo tee /etc/modprobe.d/alienware.conf
 ```
 
-Reboot to apply. The panel labels the tile according to what it reads back.
+Reboot to apply. The panel labels the button according to what it reads back.
 
 ## Install
 

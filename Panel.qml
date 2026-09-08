@@ -1176,31 +1176,26 @@ Panel {
 
           PanelSectionHeader { text: "THERMAL MODE"; foreground: root.fg; fontFamily: root.fontFamily }
 
-          Grid {
-            id: modeGrid
+          Flow {
             width: parent.width
-            columns: 3
-            columnSpacing: Style.space(6)
-            rowSpacing: Style.space(6)
-            readonly property real tileWidth: (width - columnSpacing * 2) / 3
+            spacing: Style.space(4)
 
             Repeater {
               model: root.service ? root.service.profileChoices : []
 
-              ModeTile {
+              Button {
                 required property var modelData
                 required property int index
-                width: modeGrid.tileWidth
-                name: modelData
-                label: Model.profileLabel(modelData, root.hw.profile.gmodeForced)
-                glyph: Model.profileGlyph(modelData)
-                caption: index < 4 ? "Press " + (index + 1) : ""
+                text: Model.profileLabel(modelData, root.hw.profile.gmodeForced)
+                iconText: Model.profileGlyph(modelData)
+                tooltipText: index < 4 ? "Press " + (index + 1) : ""
                 selected: root.hw.profile.current === modelData
-                locked: !root.available || !root.hw.profile.writable
-                fg: root.fg
-                dim: root.dim
+                enabled: root.available && root.hw.profile.writable
+                bordered: true
+                foreground: root.fg
                 fontFamily: root.fontFamily
-                onActivated: function(name) { if (root.service) root.service.setProfile(name) }
+                fontSize: Style.font.caption
+                onClicked: if (root.service) root.service.setProfile(modelData)
               }
             }
           }
