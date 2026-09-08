@@ -71,7 +71,7 @@ Item {
     id: rowsColumn
     anchors.left: parent.left
     anchors.top: parent.top
-    width: parent.width - root.mediaWidth - root.rowGap
+    width: parent.width
     spacing: root.rowGap
 
     Repeater {
@@ -81,8 +81,9 @@ Item {
         id: krow
         required property var modelData
         required property int index
-        width: rowsColumn.width
+        width: krow.spansFullWidth ? rowsColumn.width : rowsColumn.width - root.mediaWidth - root.rowGap
         height: root.keyHeight
+        readonly property bool spansFullWidth: krow.index === 0 || krow.index === root.rows.length - 1
         spacing: root.keyGap
         readonly property real weight: Model.keyboardRowWeight(krow.modelData)
 
@@ -118,8 +119,10 @@ Item {
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               font.bold: keyTile.selected
+              fontSizeMode: Text.HorizontalFit
+              minimumPixelSize: Math.max(6, Style.font.caption - 4)
               elide: Text.ElideRight
-              width: parent.width - Style.space(4)
+              width: parent.width - Style.space(2)
               horizontalAlignment: Text.AlignHCenter
             }
 
@@ -140,7 +143,7 @@ Item {
 
   Column {
     id: mediaColumnItem
-    x: rowsColumn.width + root.rowGap
+    x: rowsColumn.width - root.mediaWidth
     y: root.keyHeight + root.rowGap
     width: root.mediaWidth
     spacing: root.rowGap
@@ -177,8 +180,10 @@ Item {
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           font.bold: mediaTile.selected
+          fontSizeMode: Text.HorizontalFit
+          minimumPixelSize: Math.max(6, Style.font.caption - 4)
           elide: Text.ElideRight
-          width: parent.width - Style.space(4)
+          width: parent.width - Style.space(2)
           horizontalAlignment: Text.AlignHCenter
         }
 

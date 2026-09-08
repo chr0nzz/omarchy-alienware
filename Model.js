@@ -79,51 +79,51 @@ function kbKey(id, label, w, index) {
 
 var KEYBOARD_ROWS = [
   [
-    kbKey("esc", "esc", 1, 0),
+    kbKey("esc", "󱊷", 1, 0),
     kbKey("f1", "F1", 1, 1), kbKey("f2", "F2", 1, 2), kbKey("f3", "F3", 1, 3), kbKey("f4", "F4", 1, 4),
     kbKey("f5", "F5", 1, 5), kbKey("f6", "F6", 1, 6), kbKey("f7", "F7", 1, 7), kbKey("f8", "F8", 1, 8),
     kbKey("f9", "F9", 1, 9), kbKey("f10", "F10", 1, 10), kbKey("f11", "F11", 1, 11), kbKey("f12", "F12", 1, 12),
-    kbKey("home", "home", 1, 13), kbKey("end", "end", 1, 14), kbKey("del", "del", 1, 15)
+    kbKey("home", "home", 1, 13), kbKey("end", "end", 1, 14), kbKey("del", "⌦", 1, 15)
   ],
   [
     kbKey("grave", "`", 1, 16),
     kbKey("1", "1", 1, 17), kbKey("2", "2", 1, 18), kbKey("3", "3", 1, 19), kbKey("4", "4", 1, 20),
     kbKey("5", "5", 1, 21), kbKey("6", "6", 1, 22), kbKey("7", "7", 1, 23), kbKey("8", "8", 1, 28),
     kbKey("9", "9", 1, 29), kbKey("0", "0", 1, 30), kbKey("minus", "-", 1, 31), kbKey("equals", "=", 1, 32),
-    kbKey("backspace", "backspace", 2, 34)
+    kbKey("backspace", "⌫", 2, 34)
   ],
   [
-    kbKey("tab", "tab", 1.5, 40),
+    kbKey("tab", "⇥", 1.5, 40),
     kbKey("q", "Q", 1, 42), kbKey("w", "W", 1, 43), kbKey("e", "E", 1, 44), kbKey("r", "R", 1, 45),
     kbKey("t", "T", 1, 46), kbKey("y", "Y", 1, 47), kbKey("u", "U", 1, 48), kbKey("i", "I", 1, 49),
     kbKey("o", "O", 1, 50), kbKey("p", "P", 1, 51),
     kbKey("lbracket", "[", 1, 52), kbKey("rbracket", "]", 1, 53), kbKey("backslash", "\\", 1.5, 55)
   ],
   [
-    kbKey("caps", "caps", 1.75, 60),
+    kbKey("caps", "⇪", 1.75, 60),
     kbKey("a", "A", 1, 62), kbKey("s", "S", 1, 63), kbKey("d", "D", 1, 64), kbKey("f", "F", 1, 65), kbKey("g", "G", 1, 66),
     kbKey("h", "H", 1, 67), kbKey("j", "J", 1, 68), kbKey("k", "K", 1, 69), kbKey("l", "L", 1, 70),
-    kbKey("semicolon", ";", 1, 71), kbKey("quote", "'", 1, 72), kbKey("enter", "enter", 2.25, 74)
+    kbKey("semicolon", ";", 1, 71), kbKey("quote", "'", 1, 72), kbKey("enter", "󰌑", 2.25, 74)
   ],
   [
-    kbKey("lshift", "shift", 2.25, 78),
+    kbKey("lshift", "⇧", 2.25, 78),
     kbKey("z", "Z", 1, 83), kbKey("x", "X", 1, 84), kbKey("c", "C", 1, 85), kbKey("v", "V", 1, 86), kbKey("b", "B", 1, 87),
     kbKey("n", "N", 1, 88), kbKey("m", "M", 1, 89), kbKey("comma", ",", 1, 90), kbKey("period", ".", 1, 91), kbKey("slash", "/", 1, 92),
-    kbKey("rshift", "shift", 1.75, 94), kbKey("pageup", "pg up", 1, 114)
+    kbKey("rshift", "⇧", 1.75, 94), kbKey("pageup", "↑", 1, 114)
   ],
   [
-    kbKey("lctrl", "ctrl", 1.25, 100), kbKey("fn", "fn", 1.25, 101), kbKey("lsuper", "super", 1.25, 102), kbKey("lalt", "alt", 1.25, 104),
-    kbKey("space", "", 6),
-    kbKey("ralt", "alt", 1.25, 111), kbKey("rsuper", "super", 1.25, 109), kbKey("rctrl", "ctrl", 1.25, 112),
-    kbKey("left", "left", 1, 133), kbKey("pagedown", "pg dn", 1, 134), kbKey("right", "right", 1, 135)
+    kbKey("lctrl", "⌃", 1.25, 100), kbKey("fn", "fn", 1.25, 101), kbKey("lsuper", "󰖳", 1.25, 102), kbKey("lalt", "⌥", 1.25, 104),
+    kbKey("space", "␣", 6),
+    kbKey("ralt", "⌥", 1.25, 111), kbKey("rsuper", "󰖳", 1.25, 109), kbKey("rctrl", "⌃", 1.25, 112),
+    kbKey("left", "←", 1, 133), kbKey("pagedown", "↓", 1, 134), kbKey("right", "→", 1, 135)
   ]
 ]
 
 var KEYBOARD_MEDIA_COLUMN = [
-  kbKey("micmute", "mic mute", 1, 24),
-  kbKey("volmute", "vol mute", 1, 25),
-  kbKey("volup", "vol up", 1, 26),
-  kbKey("voldown", "vol down", 1, 27)
+  kbKey("micmute", "󰍭", 1, 24),
+  kbKey("volmute", "󰖁", 1, 25),
+  kbKey("volup", "󰕾", 1, 26),
+  kbKey("voldown", "󰖀", 1, 27)
 ]
 
 function toList(value) {
