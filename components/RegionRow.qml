@@ -10,6 +10,7 @@ CursorSurface {
   required property int rowIndex
   property string swatch: ""
   property bool selected: false
+  property bool powered: true
   property color fg: Color.foreground
   property color dim: Qt.darker(fg, 1.5)
   property string fontFamily: Style.font.family
@@ -24,12 +25,13 @@ CursorSurface {
   signal picked(int rowIndex)
   signal toggleRequested(string regionId)
   signal identifyRequested(string regionId)
+  signal powerRequested(string regionId)
 
   foreground: fg
   fill: Style.hoverFillFor(fg, accent)
   currentFill: Style.selectedFillFor(fg, accent)
   current: row.selected
-  implicitHeight: content.implicitHeight + Style.space(12)
+  implicitHeight: content.implicitHeight + Style.space(10)
 
   MouseArea {
     anchors.fill: parent
@@ -48,14 +50,14 @@ CursorSurface {
     anchors.verticalCenter: parent.verticalCenter
     anchors.leftMargin: Style.space(10)
     anchors.rightMargin: Style.space(10)
-    implicitHeight: Math.max(labels.implicitHeight, dot.height, actions.implicitHeight)
+    implicitHeight: Math.max(chip.height, labels.implicitHeight, actions.implicitHeight)
 
     Item {
       id: checkSlot
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
-      width: Style.space(18)
-      height: Style.space(18)
+      width: Style.space(16)
+      height: Style.space(16)
 
       Text {
         anchors.centerIn: parent
@@ -68,22 +70,34 @@ CursorSurface {
       }
     }
 
-    Rectangle {
-      id: dot
+    BorderSurface {
+      id: chip
       anchors.left: checkSlot.right
       anchors.leftMargin: Style.space(8)
       anchors.verticalCenter: parent.verticalCenter
-      width: Style.space(14)
-      height: Style.space(14)
-      radius: width / 2
-      color: row.swatch !== "" ? row.swatch : Util.alpha(row.fg, 0.2)
-      border.width: 1
-      border.color: Util.alpha(row.fg, 0.35)
+      width: Style.space(34)
+      height: Style.space(34)
+      radius: Style.cornerRadius
+      color: row.swatch !== ""
+        ? Util.alpha(row.swatch, row.powered ? 1.0 : 0.35)
+        : Util.alpha(row.fg, row.powered ? 0.15 : 0.06)
+      borderSpec: Border.flat(Util.alpha(row.fg, 0.35), Style.normalBorderWidth)
+
+      Text {
+        anchors.centerIn: parent
+        visible: !row.powered
+        textFormat: Text.PlainText
+        text: "OFF"
+        color: row.fg
+        font.family: row.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+      }
     }
 
     Column {
       id: labels
-      anchors.left: dot.right
+      anchors.left: chip.right
       anchors.leftMargin: Style.space(10)
       anchors.right: actions.left
       anchors.rightMargin: Style.space(8)
@@ -94,7 +108,7 @@ CursorSurface {
         textFormat: Text.PlainText
         width: parent.width
         text: row.title
-        color: row.fg
+        color: row.powered ? row.fg : row.dim
         font.family: row.fontFamily
         font.pixelSize: Style.font.bodySmall
         font.bold: row.selected
@@ -116,14 +130,27 @@ CursorSurface {
       id: actions
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: Style.space(4)
 
       PanelActionButton {
         iconText: "󱄄"
-        tooltipText: "Light this region"
+        tooltipText: "Light this region (i)"
         foreground: row.fg
         fontFamily: row.fontFamily
         onClicked: row.identifyRequested(row.region.id)
+      }
+
+      Button {
+        text: row.powered ? "On" : "Off"
+        selected: row.powered
+        bordered: true
+        foreground: row.fg
+        fontFamily: row.fontFamily
+        fontSize: Style.font.caption
+        horizontalPadding: Style.space(8)
+        verticalPadding: Style.space(3)
+        tooltipText: row.powered ? "Turn this region off (p)" : "Turn this region on (p)"
+        onClicked: row.powerRequested(row.region.id)
       }
     }
   }

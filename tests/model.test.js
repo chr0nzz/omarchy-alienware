@@ -498,6 +498,38 @@ test("hasAnyKey tells an empty map from a populated one", () => {
   assert.equal(Model.hasAnyKey(null), false)
 })
 
+test("normalizeRegionOnMap defaults every known region to on", () => {
+  assert.deepEqual(Model.normalizeRegionOnMap(null), {
+    power: true, logo: true, "ring-top": true, "ring-bottom": true
+  })
+  assert.deepEqual(Model.normalizeRegionOnMap({}), {
+    power: true, logo: true, "ring-top": true, "ring-bottom": true
+  })
+})
+
+test("normalizeRegionOnMap keeps an explicit false and ignores unknown ids", () => {
+  const map = Model.normalizeRegionOnMap({ power: false, keyboard: false, logo: true })
+  assert.deepEqual(map, { power: false, logo: true, "ring-top": true, "ring-bottom": true })
+})
+
+test("effectiveRegionColors forces an off region to black even when it has a remembered colour", () => {
+  const map = Model.effectiveRegionColors(
+    { power: "FF0000", logo: "00FF00" },
+    { power: false }
+  )
+  assert.deepEqual(map, { power: "000000", logo: "00FF00" })
+})
+
+test("effectiveRegionColors omits an on region with no remembered colour", () => {
+  const map = Model.effectiveRegionColors({}, {})
+  assert.deepEqual(map, {})
+})
+
+test("effectiveRegionColors survives junk input and still reports off regions", () => {
+  assert.deepEqual(Model.effectiveRegionColors(null, { power: false }), { power: "000000" })
+  assert.deepEqual(Model.effectiveRegionColors("nope", null), {})
+})
+
 test("brightnessStep moves in fives and clamps", () => {
   assert.equal(Model.brightnessStep(50, 1), 55)
   assert.equal(Model.brightnessStep(50, -1), 45)
@@ -646,6 +678,29 @@ test("parseState returns safe defaults for a missing or broken file", () => {
   assert.equal(state.themeSync, false)
   assert.deepEqual(state.curve.cpu, Model.defaultCurve())
   assert.equal(state.curve.interval, 2)
+  assert.deepEqual(state.regionsOn, { power: true, logo: true, "ring-top": true, "ring-bottom": true })
+})
+
+test("parseState defaults every region to on when reading a file saved before per region power existed", () => {
+  const state = Model.parseState(JSON.stringify({
+    version: 2,
+    regions: { power: "#f00" },
+    color: "#f00",
+    brightness: 80,
+    lightsOn: true
+  }))
+  assert.deepEqual(state.regionsOn, { power: true, logo: true, "ring-top": true, "ring-bottom": true })
+})
+
+test("parseState reads saved per region power and ignores an unknown region id", () => {
+  const state = Model.parseState(JSON.stringify({
+    version: 2,
+    regions: { power: "#f00" },
+    regionsOn: { power: false, "ring-top": false, keyboard: false },
+    brightness: 80,
+    lightsOn: true
+  }))
+  assert.deepEqual(state.regionsOn, { power: false, logo: true, "ring-top": false, "ring-bottom": true })
 })
 
 test("buildStatePayload round trips through parseState at version two", () => {
@@ -665,6 +720,24 @@ test("buildStatePayload round trips through parseState at version two", () => {
   assert.equal(back.lightsOn, false)
   assert.equal(back.curve.interval, 4)
   assert.deepEqual(back.curve.cpu, Model.curvePreset("silent"))
+})
+
+test("buildStatePayload round trips per region power alongside colour", () => {
+  const payload = Model.buildStatePayload({
+    regions: { power: "#f00", logo: "#00ff00" },
+    regionsOn: { power: false, logo: true },
+    color: "#00ff00",
+    brightness: 80,
+    lightsOn: true
+  })
+  assert.deepEqual(payload.regionsOn, { power: false, logo: true, "ring-top": true, "ring-bottom": true })
+  const back = Model.parseState(JSON.stringify(payload))
+  assert.deepEqual(back.regionsOn, { power: false, logo: true, "ring-top": true, "ring-bottom": true })
+})
+
+test("buildStatePayload defaults every region to on when the caller omits regionsOn entirely", () => {
+  const payload = Model.buildStatePayload({ regions: {}, color: "#fff", brightness: 100, lightsOn: true })
+  assert.deepEqual(payload.regionsOn, { power: true, logo: true, "ring-top": true, "ring-bottom": true })
 })
 
 test("power constraints get readable labels and a writability flag", () => {
@@ -828,6 +901,28 @@ test("restore tolerates a missing state object", function() {
   assert.deepEqual(Model.restoreSequence({}), [])
 })
 
+test("restore sends black for a region that is switched off, keeping the rest of the selection lit", function() {
+  var steps = Model.restoreSequence({
+    lightsOn: true,
+    brightness: 60,
+    regions: { power: "FF0044", logo: "00FF00" },
+    regionsOn: { power: false }
+  })
+  var verbs = steps.map(function(s) { return s.argv.slice(1).join(" ") })
+  assert.deepEqual(verbs, ["rgb brightness 60", "rgb set-map power=000000,logo=00FF00"])
+})
+
+test("restore still sends black for an off region that never had a remembered colour", function() {
+  var steps = Model.restoreSequence({
+    lightsOn: true,
+    brightness: 60,
+    regions: {},
+    regionsOn: { "ring-top": false }
+  })
+  var verbs = steps.map(function(s) { return s.argv.slice(1).join(" ") })
+  assert.deepEqual(verbs, ["rgb brightness 60", "rgb set-map ring-top=000000"])
+})
+
 test("hexToHsv reads the primary and secondary colours", () => {
   assert.deepEqual(Model.hexToHsv("#FF0000"), { h: 0, s: 100, v: 100 })
   assert.deepEqual(Model.hexToHsv("#00FF00"), { h: 120, s: 100, v: 100 })
@@ -918,6 +1013,38 @@ test("themeSwatches skips names the palette does not define and survives empty i
   assert.deepEqual(swatches.map((s) => s.id), ["accent", "red"])
   assert.deepEqual(Model.themeSwatches(""), [])
   assert.deepEqual(Model.themeSwatches("garbage"), [])
+})
+
+test("paletteIsFlat spots a monochrome theme where every swatch is a near identical grey", () => {
+  var text = [
+    "accent\t#3a3a3a",
+    "red\t#2a2a2a",
+    "orange\t#343434",
+    "yellow\t#303030",
+    "green\t#383838",
+    "cyan\t#2e2e2e",
+    "blue\t#323232",
+    "purple\t#363636"
+  ].join("\n")
+  assert.equal(Model.paletteIsFlat(Model.themeSwatches(text)), true)
+})
+
+test("paletteIsFlat leaves a genuinely colourful palette alone", () => {
+  var text = [
+    "accent\t#e68e0d",
+    "red\t#ff0000",
+    "orange\t#ffa500",
+    "green\t#00ff00",
+    "cyan\t#00ffff",
+    "blue\t#0000ff",
+    "purple\t#800080"
+  ].join("\n")
+  assert.equal(Model.paletteIsFlat(Model.themeSwatches(text)), false)
+})
+
+test("paletteIsFlat is not confused by too few swatches to compare", () => {
+  assert.equal(Model.paletteIsFlat([]), false)
+  assert.equal(Model.paletteIsFlat([{ hex: "FF0000" }]), false)
 })
 
 test("colorToHex reads the shell theme colour in every form it arrives", () => {

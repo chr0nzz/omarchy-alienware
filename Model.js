@@ -771,6 +771,16 @@ function normalizeRegions(raw) {
   return out
 }
 
+function normalizeRegionOnMap(raw) {
+  var src = isObject(raw) ? raw : {}
+  var ids = regionIds()
+  var out = {}
+  for (var i = 0; i < ids.length; i++) {
+    out[ids[i]] = src[ids[i]] === false ? false : true
+  }
+  return out
+}
+
 function normalizeRgbStatus(raw) {
   var src = isObject(raw) ? raw : {}
   var dev = isObject(src.device) ? src.device : {}
@@ -798,6 +808,23 @@ function regionColorPayload(regions) {
   return out
 }
 
+function effectiveRegionColors(regions, regionsOn) {
+  var src = isObject(regions) ? regions : {}
+  var onMap = normalizeRegionOnMap(regionsOn)
+  var ids = regionIds()
+  var out = {}
+  for (var i = 0; i < ids.length; i++) {
+    var id = ids[i]
+    if (onMap[id] === false) {
+      out[id] = "000000"
+      continue
+    }
+    var hex = normalizeHex(src[id])
+    if (hex) out[id] = hex
+  }
+  return out
+}
+
 function hasAnyKey(obj) {
   if (!isObject(obj)) return false
   for (var k in obj) return true
@@ -808,9 +835,28 @@ function restoreSequence(state) {
   var out = []
   if (!isObject(state) || state.lightsOn !== true) return out
   out.push({ argv: cmdRgbBrightness(state.brightness), label: "Brightness" })
-  var map = regionColorPayload(state.regions)
+  var map = effectiveRegionColors(state.regions, state.regionsOn)
   if (hasAnyKey(map)) out.push({ argv: cmdRgbSetMap(map), label: "Colour" })
   return out
+}
+
+function paletteIsFlat(swatches) {
+  var list = toList(swatches)
+  if (list.length < 2) return false
+  var minR = 255, minG = 255, minB = 255
+  var maxR = 0, maxG = 0, maxB = 0
+  var seen = 0
+  for (var i = 0; i < list.length; i++) {
+    var rgb = hexToRgb(list[i] && list[i].hex)
+    if (!rgb) continue
+    seen++
+    minR = Math.min(minR, rgb.r); maxR = Math.max(maxR, rgb.r)
+    minG = Math.min(minG, rgb.g); maxG = Math.max(maxG, rgb.g)
+    minB = Math.min(minB, rgb.b); maxB = Math.max(maxB, rgb.b)
+  }
+  if (seen < 2) return false
+  var spread = Math.max(maxR - minR, maxG - minG, maxB - minB)
+  return spread < 24
 }
 
 function powerLimitWritable(constraint) {
@@ -942,6 +988,7 @@ function parseState(raw) {
   return {
     version: toInt(src.version, 1),
     regions: regionColorPayload(src.regions),
+    regionsOn: normalizeRegionOnMap(src.regionsOn),
     color: normalizeHex(src.color),
     brightness: src.brightness === undefined || src.brightness === null ? 100 : clampBrightness(src.brightness),
     lightsOn: src.lightsOn !== false,
@@ -961,6 +1008,7 @@ function buildStatePayload(state) {
     version: 2,
     savedAt: toInt(src.savedAt, 0),
     regions: regionColorPayload(src.regions),
+    regionsOn: normalizeRegionOnMap(src.regionsOn),
     color: normalizeHex(src.color),
     brightness: clampBrightness(src.brightness),
     lightsOn: src.lightsOn !== false,

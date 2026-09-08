@@ -208,6 +208,29 @@ Panel {
     regionSelection = []
   }
 
+  function isRegionOn(id) {
+    return service ? service.regionOn[id] !== false : true
+  }
+
+  function setRegionPower(ids, on) {
+    if (!service) return
+    service.setRegionOn(ids, on)
+  }
+
+  function activeRegionIds() {
+    if (regionSelection.length) return regionSelection.slice()
+    var list = Model.toList(regions)
+    var current = list[regionCursor]
+    return current ? [current.id] : []
+  }
+
+  function toggleRegionPower() {
+    if (!service) return
+    var ids = activeRegionIds()
+    if (!ids.length) return
+    service.toggleRegionOn(ids)
+  }
+
   function applyColorField() {
     if (!service) return
     var text = colorField.text
@@ -298,7 +321,7 @@ Panel {
   readonly property string footerText: {
     if (settingsOpen) return "⏎ save · esc cancel"
     if (tab === "fans") return "h/l tab · j/k point · +/- boost · 1-4 preset · a apply · s settings · esc"
-    if (tab === "rgb") return "h/l tab · j/k region · space select · a all · x clear · c colour · i identify · t theme sync · esc"
+    if (tab === "rgb") return "h/l tab · j/k region · space select · a all · x clear · p power · c colour · i identify · t theme sync · esc"
     return "h/l tab · j/k field · +/- adjust · 1-4 mode · p profiles · w save · esc"
   }
 
@@ -340,6 +363,7 @@ Panel {
       case "i": var current = regions[regionCursor]; if (current) service.identifyRegion(current.id); break
       case "a": selectAllRegions(); break
       case "x": clearRegionSelection(); break
+      case "p": toggleRegionPower(); break
       default: break
       }
       return
@@ -781,54 +805,74 @@ Panel {
             font.pixelSize: Style.font.bodySmall
           }
 
-          Toggle {
-            width: parent.width
-            label: "Lighting"
-            description: root.rgb.device.ready ? "Power button, lid logo and ring" : "No controller found"
-            checked: root.service ? root.service.lightsOn : false
-            enabled: root.rgbConnected
-            foreground: root.fg
-            fontFamily: root.fontFamily
-            titleSize: Style.font.body
-            onClicked: if (root.service) root.service.toggleLights()
-          }
-
-          Toggle {
-            width: parent.width
-            label: "Follow the Omarchy theme"
-            description: "Repaint every region when the theme colour changes"
-            checked: root.service ? root.service.themeSync : false
-            enabled: root.rgbConnected
-            foreground: root.fg
-            fontFamily: root.fontFamily
-            titleSize: Style.font.body
-            onClicked: if (root.service) root.service.toggleThemeSync()
-          }
-
-          PanelSectionHeader { text: "REGIONS"; foreground: root.fg; fontFamily: root.fontFamily }
-
           Row {
             width: parent.width
             spacing: Style.space(6)
 
-            Button {
-              text: "Select all"
-              bordered: true
+            Toggle {
+              width: (parent.width - parent.spacing) / 2
+              label: "Lighting"
+              description: root.rgb.device.ready ? "" : "No controller found"
+              checked: root.service ? root.service.lightsOn : false
+              enabled: root.rgbConnected
               foreground: root.fg
               fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              tooltipText: "Select every region (a)"
-              onClicked: root.selectAllRegions()
+              titleSize: Style.font.bodySmall
+              descriptionSize: Style.font.caption
+              onClicked: if (root.service) root.service.toggleLights()
             }
 
-            Button {
-              text: "Clear selection"
-              bordered: true
+            Toggle {
+              width: (parent.width - parent.spacing) / 2
+              label: "Follow theme"
+              checked: root.service ? root.service.themeSync : false
+              enabled: root.rgbConnected
               foreground: root.fg
               fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              tooltipText: "Clear the selection (x)"
-              onClicked: root.clearRegionSelection()
+              titleSize: Style.font.bodySmall
+              descriptionSize: Style.font.caption
+              onClicked: if (root.service) root.service.toggleThemeSync()
+            }
+          }
+
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(regionsHeader.implicitHeight, regionsActions.implicitHeight)
+
+            PanelSectionHeader {
+              id: regionsHeader
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: "REGIONS"
+              foreground: root.fg
+              fontFamily: root.fontFamily
+            }
+
+            Row {
+              id: regionsActions
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(6)
+
+              Button {
+                text: "Select all"
+                bordered: true
+                foreground: root.fg
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                tooltipText: "Select every region (a)"
+                onClicked: root.selectAllRegions()
+              }
+
+              Button {
+                text: "Clear"
+                bordered: true
+                foreground: root.fg
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                tooltipText: "Clear the selection (x)"
+                onClicked: root.clearRegionSelection()
+              }
             }
           }
 
@@ -847,6 +891,7 @@ Panel {
                 rowIndex: index
                 swatch: root.service && root.service.regionColors[modelData.id] ? Model.hexPreview(root.service.regionColors[modelData.id]) : ""
                 selected: root.regionSelection.indexOf(modelData.id) !== -1
+                powered: root.service ? root.service.regionOn[modelData.id] !== false : true
                 hasCursor: root.regionCursor === index
                 fg: root.fg
                 dim: root.dim
@@ -854,6 +899,7 @@ Panel {
                 onPicked: function(rowIndex) { root.regionCursor = rowIndex }
                 onToggleRequested: function(regionId) { root.toggleRegionSelection(regionId) }
                 onIdentifyRequested: function(regionId) { if (root.service) root.service.identifyRegion(regionId) }
+                onPowerRequested: function(regionId) { root.setRegionPower([regionId], !root.isRegionOn(regionId)) }
               }
             }
           }
@@ -865,14 +911,13 @@ Panel {
             width: parent.width
             spacing: Style.space(6)
 
-            Rectangle {
+            BorderSurface {
               width: Style.space(28)
               height: Style.space(28)
-              radius: Style.space(4)
+              radius: Style.cornerRadius
               anchors.verticalCenter: parent.verticalCenter
               color: Model.validHex(colorField.text) ? Model.hexPreview(colorField.text) : Util.alpha(root.fg, 0.15)
-              border.width: 1
-              border.color: Util.alpha(root.fg, 0.35)
+              borderSpec: Border.flat(Util.alpha(root.fg, 0.35), Style.normalBorderWidth)
             }
 
             TextField {
@@ -912,21 +957,12 @@ Panel {
             width: parent.width
             hex: colorField.text
             swatches: root.service ? root.service.themeSwatches : []
+            themeEnabled: root.rgbConnected
             fg: root.fg
             accent: root.accent
             fontFamily: root.fontFamily
             onPicked: function(nextHex) { colorField.text = nextHex }
-          }
-
-          Button {
-            text: "Use the theme colour"
-            iconText: "󰏘"
-            bordered: true
-            enabled: root.rgbConnected
-            foreground: root.fg
-            fontFamily: root.fontFamily
-            fontSize: Style.font.caption
-            onClicked: if (root.service) root.service.applyThemeColor()
+            onThemeColorRequested: if (root.service) root.service.applyThemeColor()
           }
 
           ValueSlider {
@@ -944,8 +980,6 @@ Panel {
             onMoved: function(next) { if (root.service) root.service.setBrightness(next) }
           }
 
-          PanelSectionHeader { text: "EFFECT"; foreground: root.fg; fontFamily: root.fontFamily; topPadding: Style.space(4) }
-
           Text {
             width: parent.width
             wrapMode: Text.Wrap
@@ -953,7 +987,6 @@ Panel {
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
-            font.italic: true
           }
         }
 

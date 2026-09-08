@@ -88,6 +88,7 @@ Item {
   readonly property var regions: rgb.regions
 
   property var regionColors: ({})
+  property var regionOn: ({})
 
   property string color: ""
   property int brightness: 100
@@ -140,6 +141,7 @@ Item {
   function applyState(raw) {
     var parsed = Model.parseState(raw)
     regionColors = parsed.regions
+    regionOn = parsed.regionsOn
     color = parsed.color
     brightness = parsed.brightness
     lightsOn = parsed.lightsOn
@@ -177,6 +179,7 @@ Item {
     stateFile.setText(JSON.stringify(Model.buildStatePayload({
       savedAt: Date.now(),
       regions: regionColors,
+      regionsOn: regionOn,
       color: color,
       brightness: brightness,
       lightsOn: lightsOn,
@@ -488,7 +491,7 @@ Item {
     regionColors = allRegionsColorMap(clean)
     color = clean
     lightsOn = true
-    enqueue(Model.cmdRgbSetAll(clean), "Colour")
+    enqueue(Model.cmdRgbSetMap(Model.effectiveRegionColors(regionColors, regionOn)), "Colour")
     scheduleSave()
     return true
   }
@@ -506,19 +509,55 @@ Item {
       actionStatus = "Select at least one region first"
       return false
     }
-    var next = {}
-    for (var k in regionColors) next[k] = regionColors[k]
+    var nextColors = {}
+    for (var k in regionColors) nextColors[k] = regionColors[k]
+    var nextOn = {}
+    for (var k2 in regionOn) nextOn[k2] = regionOn[k2]
     var map = {}
     for (var i = 0; i < list.length; i++) {
-      next[list[i]] = clean
+      nextColors[list[i]] = clean
+      nextOn[list[i]] = true
       map[list[i]] = clean
     }
-    regionColors = next
+    regionColors = nextColors
+    regionOn = nextOn
     color = clean
     lightsOn = true
     enqueue(Model.cmdRgbSetMap(map), "Colour")
     scheduleSave()
     return true
+  }
+
+  function setRegionOn(ids, on) {
+    var list = Model.toList(ids)
+    if (!list.length) {
+      actionError = true
+      actionStatus = "Select at least one region first"
+      return false
+    }
+    var nextOn = {}
+    for (var k in regionOn) nextOn[k] = regionOn[k]
+    var map = {}
+    for (var i = 0; i < list.length; i++) {
+      var id = list[i]
+      nextOn[id] = on === true
+      map[id] = on === true ? (Model.normalizeHex(regionColors[id]) || Model.normalizeHex(color) || "FFFFFF") : "000000"
+    }
+    regionOn = nextOn
+    if (on === true) lightsOn = true
+    enqueue(Model.cmdRgbSetMap(map), on === true ? "Region on" : "Region off")
+    scheduleSave()
+    return true
+  }
+
+  function toggleRegionOn(ids) {
+    var list = Model.toList(ids)
+    if (!list.length) return false
+    var allOn = true
+    for (var i = 0; i < list.length; i++) {
+      if (regionOn[list[i]] === false) { allOn = false; break }
+    }
+    return setRegionOn(list, !allOn)
   }
 
   function setBrightness(value) {
@@ -543,7 +582,7 @@ Item {
   function restoreLights() {
     lightsOn = true
     enqueue(Model.cmdRgbBrightness(brightness), "Brightness")
-    var map = Model.regionColorPayload(regionColors)
+    var map = Model.effectiveRegionColors(regionColors, regionOn)
     if (Model.hasAnyKey(map)) enqueue(Model.cmdRgbSetMap(map), "Colour")
     scheduleSave()
     return true
@@ -557,6 +596,7 @@ Item {
     var steps = Model.restoreSequence({
       lightsOn: lightsOn,
       regions: regionColors,
+      regionsOn: regionOn,
       brightness: brightness
     })
     if (!steps.length) return false
@@ -584,7 +624,7 @@ Item {
     regionColors = allRegionsColorMap(hex)
     color = hex
     lightsOn = true
-    enqueue(Model.cmdRgbSetAll(hex), "Theme colour")
+    enqueue(Model.cmdRgbSetMap(Model.effectiveRegionColors(regionColors, regionOn)), "Theme colour")
     scheduleSave()
     return true
   }
