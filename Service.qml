@@ -108,7 +108,7 @@ Item {
   property string actionStatus: ""
   property bool actionError: false
 
-  property string themeHex: ""
+  readonly property string themeHex: Model.hexFromQmlColor(Color.accent)
   property string themePaletteText: ""
   readonly property var themeSwatches: Model.themeSwatches(themePaletteText)
 

@@ -623,6 +623,17 @@ function validHex(value) {
   return /^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(value === undefined || value === null ? "" : value).trim())
 }
 
+function hexFromQmlColor(value) {
+  var text = String(value === undefined || value === null ? "" : value).trim()
+  if (!text) return ""
+  if (text.charAt(0) === "#") text = text.slice(1)
+  if (text.length === 8) text = text.slice(2)
+  if (text.length === 3) text = text.charAt(0) + text.charAt(0) + text.charAt(1) + text.charAt(1) + text.charAt(2) + text.charAt(2)
+  if (text.length !== 6) return ""
+  if (!/^[0-9a-fA-F]{6}$/.test(text)) return ""
+  return text.toUpperCase()
+}
+
 function normalizeHex(value) {
   var s = String(value === undefined || value === null ? "" : value).trim()
   if (!validHex(s)) return ""

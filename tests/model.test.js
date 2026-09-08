@@ -919,3 +919,14 @@ test("themeSwatches skips names the palette does not define and survives empty i
   assert.deepEqual(Model.themeSwatches(""), [])
   assert.deepEqual(Model.themeSwatches("garbage"), [])
 })
+
+test("hexFromQmlColor reads the shell theme colour in every form it arrives", () => {
+  assert.equal(Model.hexFromQmlColor("#e68e0d"), "E68E0D")
+  assert.equal(Model.hexFromQmlColor("e68e0d"), "E68E0D")
+  assert.equal(Model.hexFromQmlColor("#ffe68e0d"), "E68E0D")
+  assert.equal(Model.hexFromQmlColor("#abc"), "AABBCC")
+  assert.equal(Model.hexFromQmlColor(""), "")
+  assert.equal(Model.hexFromQmlColor(null), "")
+  assert.equal(Model.hexFromQmlColor("nonsense"), "")
+  assert.equal(Model.hexFromQmlColor("#12345"), "")
+})
