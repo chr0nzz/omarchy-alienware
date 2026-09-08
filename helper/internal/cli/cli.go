@@ -18,7 +18,7 @@ import (
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/openrgb"
 )
 
-var Version = "0.1.1"
+var Version = "0.1.2"
 
 const Usage = `alienwarectl <verb> [args]
 
