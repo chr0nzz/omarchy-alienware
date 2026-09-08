@@ -18,7 +18,7 @@ import (
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/usbreset"
 )
 
-var Version = "0.1.2"
+var Version = "0.2.0"
 
 var rgbResetter elc.Resetter = usbreset.New()
 
