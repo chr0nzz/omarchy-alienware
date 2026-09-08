@@ -6,7 +6,7 @@ import "../Model.js" as Model
 CursorSurface {
   id: row
 
-  required property var zone
+  required property var region
   required property int rowIndex
   property string swatch: ""
   property bool selected: false
@@ -14,38 +14,30 @@ CursorSurface {
   property color dim: Qt.darker(fg, 1.5)
   property string fontFamily: Style.font.family
 
-  readonly property bool known: zone ? zone.known === true : false
-  readonly property bool on: zone ? zone.enabled === true : false
-  readonly property string title: zone ? zone.label : ""
+  readonly property string title: region ? region.name : ""
   readonly property string hint: {
-    if (!zone) return ""
-    if (!known) return "Not named yet"
-    var bits = ["Slot " + (zone.index + 1)]
-    if (zone.ledCount > 0) bits.push(zone.ledCount + (zone.ledCount === 1 ? " led" : " leds"))
-    if (!on) bits.push("hidden")
-    return bits.join(" · ")
+    if (!region) return ""
+    var count = region.ledCount
+    return count + (count === 1 ? " led" : " leds")
   }
 
   signal picked(int rowIndex)
-  signal identifyRequested(int zoneIndex)
-  signal toggleRequested(int zoneIndex)
-  signal renameRequested(int zoneIndex)
+  signal toggleRequested(string regionId)
+  signal identifyRequested(string regionId)
 
   foreground: fg
   fill: Style.hoverFillFor(fg, accent)
   currentFill: Style.selectedFillFor(fg, accent)
+  current: row.selected
   implicitHeight: content.implicitHeight + Style.space(12)
 
   MouseArea {
-    id: mouse
     anchors.fill: parent
     hoverEnabled: true
-    acceptedButtons: Qt.LeftButton | Qt.MiddleButton
     cursorShape: Qt.PointingHandCursor
-    onClicked: function(m) {
+    onClicked: {
       row.picked(row.rowIndex)
-      if (m.button === Qt.MiddleButton) row.toggleRequested(row.zone.index)
-      else row.identifyRequested(row.zone.index)
+      row.toggleRequested(row.region.id)
     }
   }
 
@@ -58,17 +50,35 @@ CursorSurface {
     anchors.rightMargin: Style.space(10)
     implicitHeight: Math.max(labels.implicitHeight, dot.height, actions.implicitHeight)
 
+    Item {
+      id: checkSlot
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      width: Style.space(18)
+      height: Style.space(18)
+
+      Text {
+        anchors.centerIn: parent
+        textFormat: Text.PlainText
+        visible: row.selected
+        text: "󰄬"
+        color: row.accent
+        font.family: row.fontFamily
+        font.pixelSize: Style.font.body
+      }
+    }
+
     Rectangle {
       id: dot
-      anchors.left: parent.left
+      anchors.left: checkSlot.right
+      anchors.leftMargin: Style.space(8)
       anchors.verticalCenter: parent.verticalCenter
       width: Style.space(14)
       height: Style.space(14)
       radius: width / 2
       color: row.swatch !== "" ? row.swatch : Util.alpha(row.fg, 0.2)
       border.width: 1
-      border.color: Util.alpha(row.fg, row.on ? 0.6 : 0.25)
-      opacity: row.on ? 1 : 0.45
+      border.color: Util.alpha(row.fg, 0.35)
     }
 
     Column {
@@ -84,10 +94,10 @@ CursorSurface {
         textFormat: Text.PlainText
         width: parent.width
         text: row.title
-        color: row.known ? row.fg : row.dim
+        color: row.fg
         font.family: row.fontFamily
         font.pixelSize: Style.font.bodySmall
-        font.italic: !row.known
+        font.bold: row.selected
         elide: Text.ElideRight
       }
 
@@ -110,28 +120,10 @@ CursorSurface {
 
       PanelActionButton {
         iconText: "󱄄"
-        tooltipText: "Light this slot"
+        tooltipText: "Light this region"
         foreground: row.fg
         fontFamily: row.fontFamily
-        onClicked: row.identifyRequested(row.zone.index)
-      }
-
-      PanelActionButton {
-        iconText: "󰏫"
-        tooltipText: row.known ? "Rename" : "Name this slot"
-        foreground: row.fg
-        fontFamily: row.fontFamily
-        onClicked: row.renameRequested(row.zone.index)
-      }
-
-      PanelActionButton {
-        visible: row.known
-        iconText: row.on ? "󰈈" : "󰈉"
-        tooltipText: row.on ? "Hide from the zone list" : "Show in the zone list"
-        foreground: row.fg
-        fontFamily: row.fontFamily
-        hasCursor: row.on
-        onClicked: row.toggleRequested(row.zone.index)
+        onClicked: row.identifyRequested(row.region.id)
       }
     }
   }

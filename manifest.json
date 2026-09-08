@@ -5,8 +5,11 @@
   "version": "0.1.2",
   "author": "xyzlab",
   "license": "MIT",
-  "description": "Alienware Command Center replacement for the Omarchy bar. Fan readouts and an additive boost curve, thermal profiles, turbo and power limits, and keyboard RGB with a first run zone wizard. All hardware access goes through the alienwarectl helper.",
-  "kinds": ["service", "bar-widget"],
+  "description": "Alienware Command Center replacement for the Omarchy bar. Fan readouts and an additive boost curve, thermal profiles, turbo and power limits, and chassis RGB for the power button, lid logo and ring. All hardware access goes through the alienwarectl helper.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
   "keepLoaded": true,
   "entryPoints": {
     "service": "Service.qml",
@@ -25,10 +28,36 @@
       "themeRgb": false
     },
     "schema": [
-      { "key": "pollInterval", "type": "integer", "label": "Seconds between hardware polls", "min": 1, "max": 30, "step": 1, "defaultValue": 2 },
-      { "key": "hotTemp", "type": "integer", "label": "Temperature that turns the bar widget hot (C)", "min": 50, "max": 110, "step": 1, "defaultValue": 90 },
-      { "key": "display", "type": "string", "label": "Bar widget shows: icon, temp or full", "defaultValue": "temp" },
-      { "key": "themeRgb", "type": "boolean", "label": "Keep the keyboard lights on the active Omarchy theme colour", "defaultValue": false }
+      {
+        "key": "pollInterval",
+        "type": "integer",
+        "label": "Seconds between hardware polls",
+        "min": 1,
+        "max": 30,
+        "step": 1,
+        "defaultValue": 2
+      },
+      {
+        "key": "hotTemp",
+        "type": "integer",
+        "label": "Temperature that turns the bar widget hot (C)",
+        "min": 50,
+        "max": 110,
+        "step": 1,
+        "defaultValue": 90
+      },
+      {
+        "key": "display",
+        "type": "string",
+        "label": "Bar widget shows: icon, temp or full",
+        "defaultValue": "temp"
+      },
+      {
+        "key": "themeRgb",
+        "type": "boolean",
+        "label": "Keep the keyboard lights on the active Omarchy theme colour",
+        "defaultValue": false
+      }
     ]
   }
 }

@@ -434,193 +434,68 @@ test("hexToRgb returns channel values or null", () => {
   assert.equal(Model.hexToRgb(""), null)
 })
 
-test("rgb modes come from the device and fall back to the six hardware modes", () => {
-  assert.deepEqual(Model.RGB_MODES, ["Static", "Flashing", "Morph", "Spectrum Cycle", "Rainbow Wave", "Breathing"])
-  assert.deepEqual(Model.modeList(null), Model.RGB_MODES)
-  assert.deepEqual(Model.modeList({ device: { modes: ["Static", "Static", "Breathing", ""] } }), ["Static", "Breathing"])
+test("the four regions are fixed, named and ordered", () => {
+  assert.deepEqual(Model.regionIds(), ["power", "logo", "ring-top", "ring-bottom"])
+  assert.equal(Model.REGIONS.length, 4)
+  assert.equal(Model.regionById("logo").name, "Lid logo")
+  assert.equal(Model.regionById("ring-top").ledCount, 8)
+  assert.equal(Model.regionById("nope"), null)
 })
 
-test("normalizeMode is case insensitive and falls back to the first mode", () => {
-  assert.equal(Model.normalizeMode("rainbow wave"), "Rainbow Wave")
-  assert.equal(Model.normalizeMode("nope"), "Static")
-  assert.equal(Model.normalizeMode("Breathing", ["Static", "Breathing"]), "Breathing")
-  assert.equal(Model.normalizeMode("Morph", ["Static", "Breathing"]), "Static")
-})
-
-test("nextMode cycles the available modes", () => {
-  assert.equal(Model.nextMode(Model.RGB_MODES, "Static"), "Flashing")
-  assert.equal(Model.nextMode(Model.RGB_MODES, "Breathing"), "Static")
-  assert.equal(Model.nextMode(Model.RGB_MODES, "Static", -1), "Breathing")
-})
-
-test("normalizeRgbStatus reads the twenty generic slots", () => {
-  const zones = []
-  for (let i = 0; i < 20; i++) zones.push({ index: i, name: "Unknown", ledCount: 1 })
+test("normalizeRgbStatus reads the four fixed regions from the helper", () => {
   const rgb = Model.normalizeRgbStatus({
-    ok: true, server: "127.0.0.1:6742", connected: true,
-    device: { index: 0, name: "Dell G Series LED Controller", zoneCount: 20, ledCount: 20, activeMode: "Static", modes: Model.RGB_MODES },
-    zones: zones
+    ok: true, backend: "alienfx",
+    device: { path: "/dev/hidraw0", vendorId: "0x187c", productId: "0x0550", ready: true },
+    regions: [
+      { id: "power", name: "Power button", ledCount: 1 },
+      { id: "logo", name: "Lid logo", ledCount: 1 },
+      { id: "ring-top", name: "Ring top", ledCount: 8 },
+      { id: "ring-bottom", name: "Ring bottom", ledCount: 8 }
+    ]
   })
-  assert.equal(rgb.connected, true)
-  assert.equal(rgb.device.zoneCount, 20)
-  assert.equal(rgb.zones.length, 20)
+  assert.equal(rgb.backend, "alienfx")
+  assert.equal(rgb.device.ready, true)
+  assert.equal(rgb.device.vendorId, "0x187c")
+  assert.equal(rgb.regions.length, 4)
+  assert.deepEqual(rgb.regions.map((r) => r.id), ["power", "logo", "ring-top", "ring-bottom"])
 })
 
-test("normalizeRgbStatus survives an empty payload", () => {
+test("normalizeRgbStatus survives an empty payload with the fixed region table", () => {
   const rgb = Model.normalizeRgbStatus(null)
-  assert.equal(rgb.connected, false)
-  assert.equal(rgb.zones.length, 0)
-  assert.deepEqual(rgb.device.modes, Model.RGB_MODES)
+  assert.equal(rgb.device.ready, false)
+  assert.equal(rgb.regions.length, 4)
+  assert.deepEqual(rgb.regions, Model.REGIONS)
 })
 
-test("mergeZones labels unnamed slots and never invents a six zone map", () => {
-  const device = []
-  for (let i = 0; i < 20; i++) device.push({ index: i, name: "Unknown", ledCount: 1 })
-  const merged = Model.mergeZones(device, [], 20)
-  assert.equal(merged.length, 20)
-  assert.equal(merged[0].label, "Slot 1")
-  assert.equal(merged[0].known, false)
-  assert.equal(merged[0].enabled, false)
-  assert.equal(Model.namedZones(merged).length, 0)
-  assert.equal(Model.unnamedZones(merged).length, 20)
-  assert.equal(Model.zonesNeedWizard(merged), true)
+test("normalizeRgbStatus ignores a region id the fixed table does not know about", () => {
+  const rgb = Model.normalizeRgbStatus({
+    ok: true,
+    device: { ready: true },
+    regions: [{ id: "power", name: "Power button", ledCount: 1 }, { id: "keyboard", name: "Keyboard", ledCount: 90 }]
+  })
+  assert.equal(rgb.regions.length, 4)
+  assert.equal(rgb.regions.some((r) => r.id === "keyboard"), false)
 })
 
-test("mergeZones applies saved names and honours the enabled flag", () => {
-  const device = [{ name: "Unknown" }, { name: "Unknown" }, { name: "Unknown" }]
-  const merged = Model.mergeZones(device, [
-    { index: 0, name: "Keyboard left", enabled: true },
-    { index: 2, name: "Lid logo", enabled: false }
-  ], 3)
-  assert.equal(merged[0].label, "Keyboard left")
-  assert.equal(merged[0].enabled, true)
-  assert.equal(merged[1].known, false)
-  assert.equal(merged[2].known, true)
-  assert.equal(merged[2].enabled, false)
-  assert.equal(Model.namedZones(merged).length, 2)
-  assert.equal(Model.zonesNeedWizard(merged), false)
+test("regionColorPayload keeps only known region ids with a valid hex", () => {
+  const payload = Model.regionColorPayload({
+    power: "#ff0000",
+    logo: "",
+    "ring-top": "not a colour",
+    keyboard: "00ff00"
+  })
+  assert.deepEqual(payload, { power: "FF0000" })
 })
 
-test("hiding every named zone does not send a named user back to the wizard", () => {
-  const device = [{ name: "Unknown" }, { name: "Unknown" }]
-  let merged = Model.mergeZones(device, [
-    { index: 0, name: "Keyboard left", enabled: true },
-    { index: 1, name: "Lid logo", enabled: true }
-  ], 2)
-  merged = Model.toggleZoneEnabled(merged, 0)
-  merged = Model.toggleZoneEnabled(merged, 1)
-  assert.equal(merged[0].enabled, false)
-  assert.equal(merged[1].enabled, false)
-  assert.equal(Model.namedZones(merged).length, 2)
-  assert.equal(Model.zonesNeedWizard(merged), false)
+test("regionColorPayload survives junk input", () => {
+  assert.deepEqual(Model.regionColorPayload(null), {})
+  assert.deepEqual(Model.regionColorPayload("nope"), {})
 })
 
-test("a hidden named zone still resolves as a valid colour target, not a set-all fallback", () => {
-  const device = [{ name: "Unknown" }, { name: "Unknown" }]
-  const merged = Model.mergeZones(device, [
-    { index: 0, name: "Keyboard left", enabled: true },
-    { index: 1, name: "Lid logo", enabled: false }
-  ], 2)
-  const visible = Model.namedZones(merged)
-  const cursor = 1
-  let selected = null
-  for (const z of visible) if (z.index === cursor) selected = z
-  assert.ok(selected)
-  assert.equal(selected.index, 1)
-})
-
-test("cursoring an unnamed slot finds no colour target for applyColorField to fall back on", () => {
-  const device = [{ name: "Unknown" }, { name: "Unknown" }]
-  const merged = Model.mergeZones(device, [
-    { index: 0, name: "Keyboard left", enabled: true }
-  ], 2)
-  const visible = Model.namedZones(merged)
-  const cursor = 1
-  let selected = null
-  for (const z of visible) if (z.index === cursor) selected = z
-  assert.equal(selected, null)
-})
-
-test("mergeZones prefers a real device name over the slot number", () => {
-  const merged = Model.mergeZones([{ name: "Touchpad" }], [], 1)
-  assert.equal(merged[0].label, "Touchpad")
-  assert.equal(merged[0].known, false)
-})
-
-test("a saved zone map larger than the device is truncated, not trusted", () => {
-  const device = [{ name: "Unknown" }, { name: "Unknown" }]
-  const saved = [
-    { index: 0, name: "Keyboard", enabled: true },
-    { index: 5, name: "Ghost zone", enabled: true }
-  ]
-  const merged = Model.mergeZones(device, saved, 2)
-  assert.equal(merged.length, 2)
-  assert.equal(Model.namedZones(merged).length, 1)
-  const conflicts = Model.zoneConflicts(device, saved, 2)
-  assert.equal(conflicts.dropped.length, 1)
-  assert.equal(conflicts.dropped[0].name, "Ghost zone")
-  assert.equal(conflicts.deviceCount, 2)
-})
-
-test("a device with more slots than the saved map grows the list", () => {
-  const device = []
-  for (let i = 0; i < 6; i++) device.push({ name: "Unknown" })
-  const merged = Model.mergeZones(device, [{ index: 0, name: "Keyboard", enabled: true }], 6)
-  assert.equal(merged.length, 6)
-  assert.equal(merged[5].label, "Slot 6")
-  assert.equal(Model.zoneConflicts(device, [{ index: 0, name: "Keyboard" }], 6).dropped.length, 0)
-})
-
-test("setZoneName names, renames and clears a slot", () => {
-  let zones = Model.mergeZones([{ name: "Unknown" }, { name: "Unknown" }], [], 2)
-  zones = Model.setZoneName(zones, 1, "  Lid logo  ")
-  assert.equal(zones[1].name, "Lid logo")
-  assert.equal(zones[1].known, true)
-  assert.equal(zones[1].enabled, true)
-  zones = Model.setZoneName(zones, 1, "")
-  assert.equal(zones[1].known, false)
-  assert.equal(zones[1].label, "Slot 2")
-  assert.deepEqual(Model.setZoneName(zones, 9, "x"), zones)
-})
-
-test("toggleZoneEnabled only touches named slots", () => {
-  let zones = Model.mergeZones([{ name: "Unknown" }, { name: "Unknown" }], [{ index: 0, name: "Keyboard", enabled: true }], 2)
-  zones = Model.toggleZoneEnabled(zones, 0)
-  assert.equal(zones[0].enabled, false)
-  const before = zones[1].enabled
-  zones = Model.toggleZoneEnabled(zones, 1)
-  assert.equal(zones[1].enabled, before)
-})
-
-test("zoneMapPayload persists only the named slots in contract shape", () => {
-  const zones = Model.mergeZones(
-    [{ name: "Unknown" }, { name: "Unknown" }, { name: "Unknown" }],
-    [{ index: 0, name: "Keyboard left", enabled: true }, { index: 2, name: "Lid logo", enabled: false }],
-    3)
-  const payload = Model.zoneMapPayload(zones)
-  assert.deepEqual(payload, [
-    { index: 0, name: "Keyboard left", enabled: true },
-    { index: 2, name: "Lid logo", enabled: false }
-  ])
-})
-
-test("nextSlot walks the wizard in both directions", () => {
-  const zones = Model.mergeZones([{}, {}, {}], [], 3)
-  assert.equal(Model.nextSlot(zones, 0), 1)
-  assert.equal(Model.nextSlot(zones, 2), 0)
-  assert.equal(Model.nextSlot(zones, 0, -1), 2)
-  assert.equal(Model.nextSlot(zones, 99), 0)
-  assert.equal(Model.nextSlot([], 0), -1)
-})
-
-test("wizardProgress counts position and named slots", () => {
-  const zones = Model.mergeZones([{}, {}, {}], [{ index: 1, name: "Keyboard" }], 3)
-  const first = Model.wizardProgress(zones, 0)
-  assert.equal(first.position, 1)
-  assert.equal(first.total, 3)
-  assert.equal(first.named, 1)
-  assert.equal(first.done, false)
-  assert.equal(Model.wizardProgress(zones, 2).done, true)
+test("hasAnyKey tells an empty map from a populated one", () => {
+  assert.equal(Model.hasAnyKey({}), false)
+  assert.equal(Model.hasAnyKey({ power: "FF0000" }), true)
+  assert.equal(Model.hasAnyKey(null), false)
 })
 
 test("brightnessStep moves in fives and clamps", () => {
@@ -734,31 +609,38 @@ test("barTooltip falls back to the health line when there is nothing to show", (
   assert.match(Model.barTooltip(status(), "error", { error: "no bus" }), /no bus/)
 })
 
-test("parseState reads a saved zone map and drops unnamed entries", () => {
+test("parseState reads saved region colours", () => {
   const state = Model.parseState(JSON.stringify({
-    version: 1,
-    zones: [
-      { index: 0, name: "Keyboard left", enabled: true },
-      { index: 1, name: "", enabled: true },
-      { index: -3, name: "Bad", enabled: true },
-      null
-    ],
+    version: 2,
+    regions: { power: "#f00", logo: "not a colour", keyboard: "00ff00" },
     color: "#f00",
     brightness: 250,
-    mode: "Breathing",
     themeSync: true
   }))
-  assert.deepEqual(state.zones, [{ index: 0, name: "Keyboard left", enabled: true }])
+  assert.deepEqual(state.regions, { power: "FF0000" })
   assert.equal(state.color, "FF0000")
   assert.equal(state.brightness, 100)
-  assert.equal(state.mode, "Breathing")
   assert.equal(state.themeSync, true)
   assert.equal(state.lightsOn, true)
 })
 
+test("parseState drops an old zones array instead of crashing", () => {
+  const state = Model.parseState(JSON.stringify({
+    version: 1,
+    zones: [{ index: 0, name: "Keyboard left", enabled: true }],
+    color: "#0f0",
+    brightness: 60,
+    lightsOn: false
+  }))
+  assert.deepEqual(state.regions, {})
+  assert.equal(state.color, "00FF00")
+  assert.equal(state.brightness, 60)
+  assert.equal(state.lightsOn, false)
+})
+
 test("parseState returns safe defaults for a missing or broken file", () => {
   const state = Model.parseState("{broken")
-  assert.deepEqual(state.zones, [])
+  assert.deepEqual(state.regions, {})
   assert.equal(state.color, "")
   assert.equal(state.brightness, 100)
   assert.equal(state.themeSync, false)
@@ -766,19 +648,18 @@ test("parseState returns safe defaults for a missing or broken file", () => {
   assert.equal(state.curve.interval, 2)
 })
 
-test("buildStatePayload round trips through parseState", () => {
-  const zones = Model.mergeZones([{}, {}], [{ index: 1, name: "Lid logo", enabled: true }], 2)
+test("buildStatePayload round trips through parseState at version two", () => {
   const payload = Model.buildStatePayload({
-    zones: zones,
+    regions: { power: "#f00", logo: "#00ff00" },
     color: "#00ff00",
-    mode: "Static",
     brightness: 80,
     lightsOn: false,
     themeSync: true,
     curve: { interval: 4, hysteresis: 5, cpu: Model.curvePreset("silent"), gpu: null }
   })
+  assert.equal(payload.version, 2)
   const back = Model.parseState(JSON.stringify(payload))
-  assert.deepEqual(back.zones, [{ index: 1, name: "Lid logo", enabled: true }])
+  assert.deepEqual(back.regions, { power: "FF0000", logo: "00FF00" })
   assert.equal(back.color, "00FF00")
   assert.equal(back.brightness, 80)
   assert.equal(back.lightsOn, false)
@@ -819,23 +700,37 @@ test("command builders match the contract verbs", () => {
 
 test("rgb command builders normalize their arguments", () => {
   assert.deepEqual(Model.cmdRgbStatus(), ["alienwarectl", "rgb", "status"])
-  assert.deepEqual(Model.cmdRgbSet(3, "#f00"), ["alienwarectl", "rgb", "set", "3", "FF0000"])
+  assert.deepEqual(Model.cmdRgbSet("logo", "#f00"), ["alienwarectl", "rgb", "set", "logo", "FF0000"])
   assert.deepEqual(Model.cmdRgbSetAll("00ff00"), ["alienwarectl", "rgb", "set-all", "00FF00"])
-  assert.deepEqual(Model.cmdRgbMode("Breathing"), ["alienwarectl", "rgb", "mode", "Breathing"])
   assert.deepEqual(Model.cmdRgbBrightness(500), ["alienwarectl", "rgb", "brightness", "100"])
-  assert.deepEqual(Model.cmdRgbIdentify(7), ["alienwarectl", "rgb", "identify", "7"])
+  assert.deepEqual(Model.cmdRgbIdentify("ring-top"), ["alienwarectl", "rgb", "identify", "ring-top"])
   assert.deepEqual(Model.cmdRgbOff(), ["alienwarectl", "rgb", "off"])
 })
 
-test("queueKey keeps a colour write to one zone from evicting a write to another", () => {
-  const zone3 = Model.queueKey(Model.cmdRgbSet(3, "FF0000"))
-  const zone7 = Model.queueKey(Model.cmdRgbSet(7, "00FF00"))
-  assert.notEqual(zone3, zone7)
+test("cmdRgbSetMap orders regions by the fixed table and drops invalid colours", () => {
+  const argv = Model.cmdRgbSetMap({ "ring-bottom": "#00f", power: "#f00", keyboard: "#0f0" })
+  assert.deepEqual(argv, ["alienwarectl", "rgb", "set-map", "power=FF0000,ring-bottom=0000FF"])
 })
 
-test("queueKey still coalesces repeated writes to the same zone", () => {
-  const first = Model.queueKey(Model.cmdRgbSet(3, "FF0000"))
-  const second = Model.queueKey(Model.cmdRgbSet(3, "0000FF"))
+test("cmdRgbSetMap survives an empty map", () => {
+  assert.deepEqual(Model.cmdRgbSetMap({}), ["alienwarectl", "rgb", "set-map", ""])
+})
+
+test("queueKey keeps a colour write to one region from evicting a write to another", () => {
+  const power = Model.queueKey(Model.cmdRgbSet("power", "FF0000"))
+  const logo = Model.queueKey(Model.cmdRgbSet("logo", "00FF00"))
+  assert.notEqual(power, logo)
+})
+
+test("queueKey still coalesces repeated writes to the same region", () => {
+  const first = Model.queueKey(Model.cmdRgbSet("power", "FF0000"))
+  const second = Model.queueKey(Model.cmdRgbSet("power", "0000FF"))
+  assert.equal(first, second)
+})
+
+test("queueKey coalesces set-map spam regardless of which regions it touches", () => {
+  const first = Model.queueKey(Model.cmdRgbSetMap({ power: "FF0000" }))
+  const second = Model.queueKey(Model.cmdRgbSetMap({ logo: "00FF00", "ring-top": "0000FF" }))
   assert.equal(first, second)
 })
 
@@ -845,7 +740,7 @@ test("queueKey still coalesces brightness and set-all spam regardless of value",
 })
 
 test("no model string uses an em dash", () => {
-  const strings = [Model.CURVE_NOTE, Model.PL_LOCKED_NOTE, Model.ZONE_WIZARD_NOTE]
+  const strings = [Model.CURVE_NOTE, Model.PL_LOCKED_NOTE, Model.EFFECTS_NOTE]
   for (const key of Object.keys(Model.ERROR_MESSAGES)) strings.push(Model.ERROR_MESSAGES[key])
   for (const key of Object.keys(Model.PROFILE_LABELS)) strings.push(Model.PROFILE_LABELS[key])
   for (const s of strings) assert.equal(String(s).indexOf(EM_DASH), -1)
@@ -881,24 +776,6 @@ test("cmdPl never asks the helper for zero watts", function() {
   assert.deepEqual(Model.cmdPl(2, -40), ["alienwarectl", "pl", "2", "1"])
 })
 
-test("unionZoneMaps keeps saved names the device no longer reports", function() {
-  var merged = Model.unionZoneMaps(
-    [{ index: 0, name: "Keyboard left", enabled: true }],
-    [{ index: 12, name: "Alien head", enabled: true }, { index: 19, name: "Light bar", enabled: true }]
-  )
-  assert.equal(merged.length, 3)
-  assert.deepEqual(merged.map(function(z) { return z.index }), [0, 12, 19])
-})
-
-test("unionZoneMaps drops unnamed extras and never duplicates an index", function() {
-  var merged = Model.unionZoneMaps(
-    [{ index: 3, name: "Right", enabled: true }],
-    [{ index: 3, name: "Stale", enabled: false }, { index: 7, name: "  ", enabled: true }]
-  )
-  assert.equal(merged.length, 1)
-  assert.equal(merged[0].name, "Right")
-})
-
 test("every constraint the pl verb can address is writable", function() {
   assert.equal(Model.powerLimitWritable({ index: 0, writable: true }), true)
   assert.equal(Model.powerLimitWritable({ index: 1, writable: true }), true)
@@ -926,55 +803,27 @@ test("isKnownPreset rejects anything that is not a shipped preset", function() {
   assert.equal(Model.isKnownPreset(null), false)
 })
 
-test("restore applies the mode before the colour so the colour is not discarded", function() {
+test("restore applies brightness before the region colours so the colours are not discarded", function() {
   var steps = Model.restoreSequence({
-    lightsOn: true, mode: "Static", color: "FF0044", brightness: 60,
-    colorModes: ["Static", "Breathing"]
+    lightsOn: true, brightness: 60, regions: { power: "FF0044", logo: "00FF00" }
   })
   var verbs = steps.map(function(s) { return s.argv.slice(1).join(" ") })
-  assert.deepEqual(verbs, ["rgb mode Static", "rgb brightness 60", "rgb set-all FF0044"])
+  assert.deepEqual(verbs, ["rgb brightness 60", "rgb set-map power=FF0044,logo=00FF00"])
 })
 
-test("restore skips the colour for a mode that cannot show one", function() {
-  var steps = Model.restoreSequence({
-    lightsOn: true, mode: "Rainbow Wave", color: "FF0044", brightness: 60,
-    colorModes: ["Static", "Breathing"]
-  })
+test("restore skips the colour step when no region has a saved colour", function() {
+  var steps = Model.restoreSequence({ lightsOn: true, brightness: 60, regions: {} })
   var verbs = steps.map(function(s) { return s.argv.slice(1).join(" ") })
-  assert.deepEqual(verbs, ["rgb mode Rainbow Wave", "rgb brightness 60"])
-})
-
-test("restore skips the colour when the helper reports no colour modes", function() {
-  var steps = Model.restoreSequence({
-    lightsOn: true, mode: "Static", color: "FF0044", brightness: 60, colorModes: []
-  })
-  var verbs = steps.map(function(s) { return s.argv.slice(1).join(" ") })
-  assert.deepEqual(verbs, ["rgb mode Static", "rgb brightness 60"])
+  assert.deepEqual(verbs, ["rgb brightness 60"])
 })
 
 test("restore does nothing when the lights are off", function() {
   assert.deepEqual(Model.restoreSequence({
-    lightsOn: false, mode: "Static", color: "FF0044", brightness: 60, colorModes: ["Static"]
+    lightsOn: false, brightness: 60, regions: { power: "FF0044" }
   }), [])
 })
 
 test("restore tolerates a missing state object", function() {
   assert.deepEqual(Model.restoreSequence(null), [])
   assert.deepEqual(Model.restoreSequence({}), [])
-})
-
-test("modeTakesColor matches only the reported colour modes", function() {
-  assert.equal(Model.modeTakesColor("Static", ["Static", "Breathing"]), true)
-  assert.equal(Model.modeTakesColor("Morph", ["Static", "Breathing"]), false)
-  assert.equal(Model.modeTakesColor("", ["Static"]), false)
-  assert.equal(Model.modeTakesColor("Static", null), false)
-})
-
-test("normalizeRgbStatus carries colorModes through", function() {
-  var r = Model.normalizeRgbStatus({
-    ok: true, connected: true,
-    device: { zoneCount: 0, modes: ["Static", "Rainbow Wave"], colorModes: ["Static"] },
-    zones: []
-  })
-  assert.deepEqual(r.device.colorModes, ["Static"])
 })

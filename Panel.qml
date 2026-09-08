@@ -37,7 +37,6 @@ Panel {
     statusIndex = 0
     settingsOpen = false
     settingsStatus = ""
-    renameIndex = -1
     if (service) {
       service.reload()
     }
@@ -46,8 +45,6 @@ Panel {
   function close() {
     setCenterHoverRevealSuppressed(false)
     settingsOpen = false
-    wizardOpen = false
-    renameIndex = -1
     root.controller.hide()
   }
 
@@ -99,20 +96,10 @@ Panel {
   }
   readonly property var curveTemp: curveFan === "gpu" ? gpuTemp : cpuTemp
 
-  property int zoneCursor: 0
-  property bool wizardOpen: false
-  property int renameIndex: -1
+  property int regionCursor: 0
+  property var regionSelection: []
   readonly property var rgb: service ? service.rgb : Model.normalizeRgbStatus(null)
-  readonly property var zones: service ? service.zones : []
-  readonly property var visibleZones: wizardOpen || zoneEditing ? zones : Model.namedZones(zones)
-  property bool zoneEditing: false
-  readonly property var wizardZone: {
-    var list = Model.toList(zones)
-    for (var i = 0; i < list.length; i++) if (list[i].index === zoneCursor) return list[i]
-    return list.length ? list[0] : null
-  }
-  readonly property var wizardStep: Model.wizardProgress(zones, zoneCursor)
-  readonly property var modes: Model.modeList(rgb)
+  readonly property var regions: service ? service.regions : Model.normalizeRegions(null)
   readonly property bool rgbConnected: service ? service.rgbConnected : false
   readonly property string rgbError: service ? service.rgbError : ""
 
@@ -162,8 +149,6 @@ Panel {
 
   function setTab(key) {
     tab = key
-    renameIndex = -1
-    if (key === "rgb" && service && service.zonesNeedWizard && !wizardOpen) startWizard()
   }
 
   function moveCursor(dy) {
@@ -172,12 +157,9 @@ Panel {
       if (!points.length) return
       pointCursor = Math.max(0, Math.min(points.length - 1, pointCursor + dy))
     } else if (tab === "rgb") {
-      var list = Model.toList(visibleZones)
+      var list = Model.toList(regions)
       if (!list.length) return
-      var idx = 0
-      for (var i = 0; i < list.length; i++) if (list[i].index === zoneCursor) idx = i
-      idx = Math.max(0, Math.min(list.length - 1, idx + dy))
-      zoneCursor = list[idx].index
+      regionCursor = Math.max(0, Math.min(list.length - 1, regionCursor + dy))
     } else {
       powerCursor = Math.max(0, Math.min(Math.max(0, powerFieldCount - 1), powerCursor + dy))
     }
@@ -204,75 +186,26 @@ Panel {
     service.setPowerLimit(c.index + 1, c.watts + direction * 5)
   }
 
-  property bool confirmOpen: false
-  property int confirmIndex: 1
-
-  function requestForgetMap() {
-    confirmIndex = 1
-    confirmOpen = true
-  }
-
-  function confirmForgetMap() {
-    confirmOpen = false
-    if (root.service) root.service.clearZoneMap()
-  }
-
   function applyPreset(name) {
     if (!service) return
     service.applyPreset(name)
     pointCursor = 0
   }
 
-  function startWizard() {
-    wizardOpen = true
-    zoneEditing = true
-    var list = Model.toList(zones)
-    zoneCursor = list.length ? list[0].index : 0
-    if (service && list.length) service.identifyZone(zoneCursor)
+  function toggleRegionSelection(id) {
+    var list = regionSelection.slice()
+    var idx = list.indexOf(id)
+    if (idx === -1) list.push(id)
+    else list.splice(idx, 1)
+    regionSelection = list
   }
 
-  function wizardNext() {
-    var next = Model.nextSlot(zones, zoneCursor, 1)
-    if (next < 0) return
-    zoneCursor = next
-    nameField.text = ""
-    if (service) service.identifyZone(zoneCursor)
+  function selectAllRegions() {
+    regionSelection = Model.regionIds()
   }
 
-  function wizardName() {
-    if (!service || !wizardZone) return
-    var text = nameField.text
-    if (String(text || "").trim() === "") return
-    service.nameZone(wizardZone.index, text)
-    nameField.text = ""
-    wizardNext()
-  }
-
-  function finishWizard() {
-    wizardOpen = false
-    zoneEditing = false
-    renameIndex = -1
-    refocusPanel()
-  }
-
-  function beginRename(index) {
-    renameIndex = index
-    zoneCursor = index
-    renameField.text = ""
-    Qt.callLater(function() { renameField.forceActiveFocus() })
-  }
-
-  function commitRename() {
-    if (!service || renameIndex < 0) return
-    var text = String(renameField.text || "").trim()
-    if (!text) {
-      renameIndex = -1
-      refocusPanel()
-      return
-    }
-    service.nameZone(renameIndex, text)
-    renameIndex = -1
-    refocusPanel()
+  function clearRegionSelection() {
+    regionSelection = []
   }
 
   function applyColorField() {
@@ -282,11 +215,7 @@ Panel {
       service.reportAction(false, "Enter a colour as RRGGBB")
       return
     }
-    var target = Model.toList(visibleZones)
-    var selected = null
-    for (var i = 0; i < target.length; i++) if (target[i].index === zoneCursor) selected = target[i]
-    if (selected) service.setZoneColor(selected.index, text)
-    else service.reportAction(false, "Select a zone first")
+    service.setRegionColors(regionSelection, text)
   }
 
   function refocusPanel() {
@@ -315,8 +244,6 @@ Panel {
     settingsStatus = ""
     settingsError = false
     loadDraft()
-    wizardOpen = false
-    renameIndex = -1
     settingsOpen = true
   }
 
@@ -371,11 +298,11 @@ Panel {
   readonly property string footerText: {
     if (settingsOpen) return "⏎ save · esc cancel"
     if (tab === "fans") return "h/l tab · j/k point · +/- boost · 1-4 preset · a apply · s settings · esc"
-    if (tab === "rgb") return "h/l tab · j/k zone · space select · c colour · e effect · t theme sync · esc"
+    if (tab === "rgb") return "h/l tab · j/k region · space select · a all · x clear · c colour · i identify · t theme sync · esc"
     return "h/l tab · j/k field · +/- adjust · 1-4 mode · p profiles · w save · esc"
   }
 
-  readonly property string editorFocusBlock: nameField.activeFocus || renameField.activeFocus || colorField.activeFocus || sPoll.activeFocus || sHot.activeFocus ? "yes" : ""
+  readonly property string editorFocusBlock: colorField.activeFocus || sPoll.activeFocus || sHot.activeFocus ? "yes" : ""
 
   function handleTextKey(t) {
     if (!service) return
@@ -408,13 +335,11 @@ Panel {
     if (tab === "rgb") {
       switch (t) {
       case "c": Qt.callLater(function() { colorField.forceActiveFocus(); colorField.selectAll() }); break
-      case "e": service.cycleMode(1); break
       case "t": service.toggleThemeSync(); break
       case "o": service.toggleLights(); break
-      case "i": service.identifyZone(zoneCursor); break
-      case "n": beginRename(zoneCursor); break
-      case "w": wizardOpen ? finishWizard() : startWizard(); break
-      case "z": zoneEditing = !zoneEditing; break
+      case "i": var current = regions[regionCursor]; if (current) service.identifyRegion(current.id); break
+      case "a": selectAllRegions(); break
+      case "x": clearRegionSelection(); break
       default: break
       }
       return
@@ -448,40 +373,31 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.editorFocusBlock !== "" && !root.confirmOpen
+      blocked: root.editorFocusBlock !== ""
 
       onMoveRequested: function(dx, dy) {
-        if (root.confirmOpen) {
-          if (dx !== 0) root.confirmIndex = root.confirmIndex === 0 ? 1 : 0
-          return
-        }
         if (root.settingsOpen) return
         if (dy !== 0) root.moveCursor(dy)
         else if (dx !== 0) root.moveTab(dx)
       }
 
       onActivateRequested: {
-        if (root.confirmOpen) {
-          if (root.confirmIndex === 1) root.confirmForgetMap()
-          else root.confirmOpen = false
-          return
-        }
         if (root.settingsOpen) { root.saveSettings(); return }
         if (root.tab === "fans" && root.service) root.service.applyCurve()
-        else if (root.tab === "rgb" && root.service) root.service.toggleZone(root.zoneCursor)
+        else if (root.tab === "rgb") {
+          var current = root.regions[root.regionCursor]
+          if (current) root.toggleRegionSelection(current.id)
+        }
         else root.adjustPowerField(1)
       }
 
       onCloseRequested: {
-        if (root.confirmOpen) { root.confirmOpen = false; return }
         if (root.settingsOpen) { root.closeSettings(); return }
-        if (root.renameIndex >= 0) { root.renameIndex = -1; return }
-        if (root.wizardOpen) { root.finishWizard(); return }
         root.close()
       }
 
       onTabRequested: function(direction) { root.switchPanel(direction) }
-      onTextKey: function(t) { if (!root.confirmOpen) root.handleTextKey(t) }
+      onTextKey: function(t) { root.handleTextKey(t) }
 
       Column {
         id: column
@@ -859,7 +775,7 @@ Panel {
             width: parent.width
             wrapMode: Text.Wrap
             visible: !root.rgbConnected
-            text: root.rgbError !== "" ? root.rgbError : "Start the OpenRGB SDK server to control the lights"
+            text: root.rgbError !== "" ? root.rgbError : "Waiting for the lighting controller"
             color: root.urgentColor
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -867,8 +783,8 @@ Panel {
 
           Toggle {
             width: parent.width
-            label: "Keyboard lights"
-            description: root.rgb.device.name !== "" ? root.rgb.device.name : "No controller found"
+            label: "Lighting"
+            description: root.rgb.device.ready ? "Power button, lid logo and ring" : "No controller found"
             checked: root.service ? root.service.lightsOn : false
             enabled: root.rgbConnected
             foreground: root.fg
@@ -880,7 +796,7 @@ Panel {
           Toggle {
             width: parent.width
             label: "Follow the Omarchy theme"
-            description: "Repaint the lights when the theme colour changes"
+            description: "Repaint every region when the theme colour changes"
             checked: root.service ? root.service.themeSync : false
             enabled: root.rgbConnected
             foreground: root.fg
@@ -889,182 +805,56 @@ Panel {
             onClicked: if (root.service) root.service.toggleThemeSync()
           }
 
-          PanelSectionHeader {
-            text: root.wizardOpen ? "IDENTIFY YOUR LIGHTS" : "ZONES"
-            foreground: root.fg
-            fontFamily: root.fontFamily
-          }
+          PanelSectionHeader { text: "REGIONS"; foreground: root.fg; fontFamily: root.fontFamily }
 
-          Column {
-            id: wizard
+          Row {
             width: parent.width
             spacing: Style.space(6)
-            visible: root.wizardOpen
 
-            Text {
-              width: parent.width
-              wrapMode: Text.Wrap
-              text: Model.ZONE_WIZARD_NOTE
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
-
-            Text {
-              width: parent.width
-              textFormat: Text.PlainText
-              text: "Slot " + root.wizardStep.position + " of " + root.wizardStep.total + " · " + root.wizardStep.named + " named"
-              color: root.fg
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              font.bold: true
-            }
-
-            Row {
-              width: parent.width
-              spacing: Style.space(6)
-
-              Button {
-                iconText: "󱄄"
-                text: "Light it again"
-                bordered: true
-                enabled: root.rgbConnected
-                foreground: root.fg
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                onClicked: if (root.service && root.wizardZone) root.service.identifyZone(root.wizardZone.index)
-              }
-
-              Button {
-                text: "Skip"
-                bordered: true
-                foreground: root.fg
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                onClicked: root.wizardNext()
-              }
-
-              Button {
-                iconText: "󰄬"
-                text: "Done"
-                bordered: true
-                foreground: root.fg
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                onClicked: root.finishWizard()
-              }
-            }
-
-            TextField {
-              id: nameField
-              width: parent.width
-              placeholderText: "Name this light, then press Enter"
+            Button {
+              text: "Select all"
+              bordered: true
               foreground: root.fg
-              font.family: root.fontFamily
-              Keys.onPressed: function(event) {
-                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                  root.wizardName()
-                  event.accepted = true
-                } else if (event.key === Qt.Key_Escape) {
-                  root.finishWizard()
-                  event.accepted = true
-                }
-              }
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              tooltipText: "Select every region (a)"
+              onClicked: root.selectAllRegions()
+            }
+
+            Button {
+              text: "Clear selection"
+              bordered: true
+              foreground: root.fg
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              tooltipText: "Clear the selection (x)"
+              onClicked: root.clearRegionSelection()
             }
           }
 
           Column {
             width: parent.width
             spacing: Style.space(2)
-            visible: !root.wizardOpen
 
             Repeater {
-              model: root.visibleZones
+              model: root.regions
 
-              ZoneRow {
+              RegionRow {
                 required property var modelData
                 required property int index
                 width: parent.width
-                zone: modelData
+                region: modelData
                 rowIndex: index
-                swatch: root.service && root.service.color ? Model.hexPreview(root.service.color) : ""
-                hasCursor: root.zoneCursor === modelData.index
+                swatch: root.service && root.service.regionColors[modelData.id] ? Model.hexPreview(root.service.regionColors[modelData.id]) : ""
+                selected: root.regionSelection.indexOf(modelData.id) !== -1
+                hasCursor: root.regionCursor === index
                 fg: root.fg
                 dim: root.dim
                 fontFamily: root.fontFamily
-                onPicked: root.zoneCursor = modelData.index
-                onIdentifyRequested: function(zoneIndex) { if (root.service) root.service.identifyZone(zoneIndex) }
-                onToggleRequested: function(zoneIndex) { if (root.service) root.service.toggleZone(zoneIndex) }
-                onRenameRequested: function(zoneIndex) { root.beginRename(zoneIndex) }
+                onPicked: function(rowIndex) { root.regionCursor = rowIndex }
+                onToggleRequested: function(regionId) { root.toggleRegionSelection(regionId) }
+                onIdentifyRequested: function(regionId) { if (root.service) root.service.identifyRegion(regionId) }
               }
-            }
-          }
-
-          Text {
-            width: parent.width
-            wrapMode: Text.Wrap
-            visible: !root.wizardOpen && Model.toList(root.visibleZones).length === 0
-            text: root.rgbConnected
-              ? "No lights named yet. Run the wizard to walk the slots one at a time."
-              : "Zones appear once the OpenRGB server answers."
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.italic: true
-          }
-
-          TextField {
-            id: renameField
-            width: parent.width
-            visible: root.renameIndex >= 0
-            placeholderText: "New name for this slot"
-            foreground: root.fg
-            font.family: root.fontFamily
-            Keys.onPressed: function(event) {
-              if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                root.commitRename()
-                event.accepted = true
-              } else if (event.key === Qt.Key_Escape) {
-                root.renameIndex = -1
-                root.refocusPanel()
-                event.accepted = true
-              }
-            }
-          }
-
-          Row {
-            width: parent.width
-            spacing: Style.space(6)
-            visible: !root.wizardOpen
-
-            Button {
-              iconText: "󱄄"
-              text: "Identify lights"
-              bordered: true
-              enabled: root.rgbConnected
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              tooltipText: "Walk every slot and name the ones you can see (w)"
-              onClicked: root.startWizard()
-            }
-
-            Button {
-              text: root.zoneEditing ? "Hide unnamed" : "Show all slots"
-              bordered: true
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              onClicked: root.zoneEditing = !root.zoneEditing
-            }
-
-            Button {
-              text: "Forget map"
-              bordered: true
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              onClicked: root.requestForgetMap()
             }
           }
 
@@ -1113,7 +903,7 @@ Panel {
               foreground: root.fg
               fontFamily: root.fontFamily
               fontSize: Style.font.caption
-              tooltipText: "Apply to the selected zone"
+              tooltipText: "Apply to the selected regions"
               onClicked: root.applyColorField()
             }
           }
@@ -1146,25 +936,14 @@ Panel {
 
           PanelSectionHeader { text: "EFFECT"; foreground: root.fg; fontFamily: root.fontFamily; topPadding: Style.space(4) }
 
-          Flow {
+          Text {
             width: parent.width
-            spacing: Style.space(4)
-
-            Repeater {
-              model: root.modes
-
-              Button {
-                required property var modelData
-                text: modelData
-                selected: root.service ? Model.normalizeMode(root.service.mode, root.modes) === modelData : false
-                bordered: true
-                enabled: root.rgbConnected
-                foreground: root.fg
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                onClicked: if (root.service) root.service.setMode(modelData)
-              }
-            }
+            wrapMode: Text.Wrap
+            text: Model.EFFECTS_NOTE
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.italic: true
           }
         }
 
@@ -1473,24 +1252,6 @@ Panel {
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
         }
-      }
-
-      ConfirmDialog {
-        anchors.fill: parent
-        z: 10
-        opened: root.confirmOpen
-        selectedIndex: root.confirmIndex
-        message: "Forget every zone name for this device?"
-        confirmText: "Forget"
-        background: Color.popups.background
-        foreground: root.fg
-        scrim: Util.alpha(Color.popups.background, 0.75)
-        selectedBackground: Style.hoverFillFor(root.fg, root.accent)
-        selectedText: root.accent
-        fontFamily: root.fontFamily
-        onSelectedIndexChanged: root.confirmIndex = selectedIndex
-        onCanceled: root.confirmOpen = false
-        onConfirmed: root.confirmForgetMap()
       }
     }
   }

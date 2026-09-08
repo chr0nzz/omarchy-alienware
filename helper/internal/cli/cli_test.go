@@ -79,7 +79,7 @@ func (e *fakeCoded) Code() string  { return e.code }
 
 func TestEmitErrorShape(t *testing.T) {
 	var out bytes.Buffer
-	code := emitError(&out, &fakeCoded{msg: "no server", code: "no-openrgb"})
+	code := emitError(&out, &fakeCoded{msg: "no server", code: "no-device"})
 	if code != 1 {
 		t.Fatalf("exit code: got %d, want 1", code)
 	}
@@ -87,7 +87,7 @@ func TestEmitErrorShape(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &parsed); err != nil {
 		t.Fatalf("not JSON: %v", err)
 	}
-	if parsed["ok"] != false || parsed["error"] != "no server" || parsed["code"] != "no-openrgb" {
+	if parsed["ok"] != false || parsed["error"] != "no server" || parsed["code"] != "no-device" {
 		t.Fatalf("got %v", parsed)
 	}
 	if len(parsed) != 3 {

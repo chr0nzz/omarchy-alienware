@@ -21,7 +21,7 @@ Only the latest release on `main` receives fixes.
 | Bar widget and panel | Your user | Reads sysfs, runs `alienwarectl` |
 | `alienwarectl daemon` | root | Owns `org.xyzlab.Alienware1` on the D-Bus system bus, writes sysfs |
 | `alienwarectl` CLI | Your user | D-Bus client of the daemon |
-| RGB | Your user | TCP to the OpenRGB SDK server on `127.0.0.1:6742` |
+| RGB | Your user | Direct HID feature reports to `/dev/hidraw0` |
 
 There are no setuid binaries, no `sudo` calls, and no root shells. The plugin never writes sysfs itself.
 
@@ -66,9 +66,9 @@ Curve JSON is clamped and validated before it reaches the fans: temperature 0 to
 
 ## RGB
 
-RGB deliberately runs unprivileged. OpenRGB's `60-openrgb.rules` tags the HID node `uaccess`, so your logged-in session gets an ACL on it and lighting is driven as you. It never touches the daemon.
+RGB deliberately runs unprivileged. The shipped `71-alienware-aw-elc.rules` tags the AW-ELC HID node `uaccess`, so your logged-in session gets an ACL on it and lighting is driven as you. It never touches the daemon.
 
-The shipped user unit starts the server with `--server-host 127.0.0.1`. The OpenRGB SDK protocol has no authentication, so a server bound to `0.0.0.0` hands lighting control of the machine to everyone on the network. Do not change that bind address.
+Lighting now speaks the AlienFX protocol straight to `/dev/hidraw0`. There is no server, no socket and no network surface at all. The controller firmware wedges if two processes open that HID node at once, so only one writer should run at a time.
 
 ## What is written to disk
 
@@ -89,5 +89,4 @@ Neither file holds a credential. There are no credentials anywhere in this plugi
 ## Out of scope
 
 - The `alienware_wmi` kernel driver and anything it exposes in sysfs. Report those to the [Linux kernel platform drivers list](https://lore.kernel.org/platform-driver-x86/).
-- OpenRGB itself, including its udev rules and its SDK server. Report those to [OpenRGB](https://gitlab.com/CalcProgrammer1/OpenRGB/-/issues).
 - `nvidia-smi`, the Omarchy shell, polkit, and systemd.

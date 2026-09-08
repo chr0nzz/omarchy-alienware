@@ -90,3 +90,14 @@ func (e *internalError) Code() string  { return CodeInternal }
 func internalf(format string, args ...any) error {
 	return &internalError{msg: fmt.Sprintf(format, args...)}
 }
+
+type notSupportedError struct {
+	msg string
+}
+
+func (e *notSupportedError) Error() string { return e.msg }
+func (e *notSupportedError) Code() string  { return client.CodeNotSupported }
+
+func notSupported(format string, args ...any) error {
+	return &notSupportedError{msg: fmt.Sprintf(format, args...)}
+}

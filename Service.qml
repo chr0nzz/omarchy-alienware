@@ -84,16 +84,12 @@ Item {
   property var rgb: Model.normalizeRgbStatus(null)
   property bool rgbLoaded: false
   property string rgbError: ""
-  readonly property bool rgbConnected: rgb.connected && rgbError === ""
+  readonly property bool rgbConnected: rgb.device.ready && rgbError === ""
+  readonly property var regions: rgb.regions
 
-  property var savedZones: []
-  readonly property var zones: Model.mergeZones(rgb.zones, savedZones, rgb.device.zoneCount)
-  readonly property var activeZones: Model.namedZones(zones)
-  readonly property bool zonesNeedWizard: Model.zonesNeedWizard(zones)
-  readonly property var zoneConflicts: Model.zoneConflicts(rgb.zones, savedZones, rgb.device.zoneCount)
+  property var regionColors: ({})
 
   property string color: ""
-  property string mode: ""
   property int brightness: 100
   property bool lightsOn: true
   property bool themeSync: false
@@ -141,9 +137,8 @@ Item {
 
   function applyState(raw) {
     var parsed = Model.parseState(raw)
-    savedZones = parsed.zones
+    regionColors = parsed.regions
     color = parsed.color
-    mode = parsed.mode
     brightness = parsed.brightness
     lightsOn = parsed.lightsOn
     themeSync = parsed.themeSync === undefined ? themeRgb === true : parsed.themeSync === true
@@ -178,9 +173,8 @@ Item {
     if (!dirReady) { saveTimer.restart(); return }
     stateFile.setText(JSON.stringify(Model.buildStatePayload({
       savedAt: Date.now(),
-      zones: savedZones,
+      regions: regionColors,
       color: color,
-      mode: mode,
       brightness: brightness,
       lightsOn: lightsOn,
       themeSync: themeSync,
@@ -264,11 +258,9 @@ Item {
         root.rgb = Model.normalizeRgbStatus(result.data)
         root.rgbError = ""
         root.rgbLoaded = true
-        if (!root.mode) root.mode = root.rgb.device.activeMode
-        root.pruneZones()
         if (!root.lightsRestored && root.stateLoaded) {
           root.lightsRestored = true
-          if (root.rgb.device.zoneCount > 0) root.restoreSavedLights()
+          if (root.rgb.device.ready) root.restoreSavedLights()
         }
       } else {
         root.rgbError = result.error
@@ -286,14 +278,6 @@ Item {
       root.rgbRestoreTries++
       root.refreshRgb()
     }
-  }
-
-  function pruneZones() {
-    if (!rgbLoaded || rgbError !== "" || rgb.device.zoneCount <= 0) return
-    var payload = Model.unionZoneMaps(Model.zoneMapPayload(zones), savedZones)
-    if (JSON.stringify(payload) === JSON.stringify(savedZones)) return
-    savedZones = payload
-    scheduleSave()
   }
 
   property var queue: []
@@ -470,6 +454,13 @@ Item {
     return false
   }
 
+  function allRegionsColorMap(hex) {
+    var map = {}
+    var ids = Model.regionIds()
+    for (var i = 0; i < ids.length; i++) map[ids[i]] = hex
+    return map
+  }
+
   function setColor(hex) {
     var clean = Model.normalizeHex(hex)
     if (!clean) {
@@ -477,6 +468,7 @@ Item {
       actionStatus = "That is not a hex colour"
       return false
     }
+    regionColors = allRegionsColorMap(clean)
     color = clean
     lightsOn = true
     enqueue(Model.cmdRgbSetAll(clean), "Colour")
@@ -484,31 +476,32 @@ Item {
     return true
   }
 
-  function setZoneColor(index, hex) {
+  function setRegionColors(ids, hex) {
     var clean = Model.normalizeHex(hex)
     if (!clean) {
       actionError = true
       actionStatus = "That is not a hex colour"
       return false
     }
+    var list = Model.toList(ids)
+    if (!list.length) {
+      actionError = true
+      actionStatus = "Select at least one region first"
+      return false
+    }
+    var next = {}
+    for (var k in regionColors) next[k] = regionColors[k]
+    var map = {}
+    for (var i = 0; i < list.length; i++) {
+      next[list[i]] = clean
+      map[list[i]] = clean
+    }
+    regionColors = next
     color = clean
     lightsOn = true
-    enqueue(Model.cmdRgbSet(index, clean), "Zone colour")
+    enqueue(Model.cmdRgbSetMap(map), "Colour")
     scheduleSave()
     return true
-  }
-
-  function setMode(name) {
-    var clean = Model.normalizeMode(name, Model.modeList(rgb))
-    mode = clean
-    lightsOn = true
-    enqueue(Model.cmdRgbMode(clean), "Effect " + clean)
-    scheduleSave()
-    return true
-  }
-
-  function cycleMode(direction) {
-    return setMode(Model.nextMode(Model.modeList(rgb), mode, direction))
   }
 
   function setBrightness(value) {
@@ -533,8 +526,8 @@ Item {
   function restoreLights() {
     lightsOn = true
     enqueue(Model.cmdRgbBrightness(brightness), "Brightness")
-    if (color) enqueue(Model.cmdRgbSetAll(color), "Colour")
-    if (mode) enqueue(Model.cmdRgbMode(mode), "Effect " + mode)
+    var map = Model.regionColorPayload(regionColors)
+    if (Model.hasAnyKey(map)) enqueue(Model.cmdRgbSetMap(map), "Colour")
     scheduleSave()
     return true
   }
@@ -546,36 +539,16 @@ Item {
   function restoreSavedLights() {
     var steps = Model.restoreSequence({
       lightsOn: lightsOn,
-      mode: mode,
-      color: color,
-      brightness: brightness,
-      colorModes: rgb.device.colorModes
+      regions: regionColors,
+      brightness: brightness
     })
     if (!steps.length) return false
     for (var i = 0; i < steps.length; i++) enqueue(steps[i].argv, steps[i].label)
     return true
   }
 
-  function identifyZone(index) {
-    enqueue(Model.cmdRgbIdentify(index), "Identify")
-    return true
-  }
-
-  function nameZone(index, name) {
-    savedZones = Model.zoneMapPayload(Model.setZoneName(zones, index, name))
-    scheduleSave()
-    return true
-  }
-
-  function toggleZone(index) {
-    savedZones = Model.zoneMapPayload(Model.toggleZoneEnabled(zones, index))
-    scheduleSave()
-    return true
-  }
-
-  function clearZoneMap() {
-    savedZones = []
-    scheduleSave()
+  function identifyRegion(id) {
+    enqueue(Model.cmdRgbIdentify(id), "Identify")
     return true
   }
 
@@ -591,6 +564,7 @@ Item {
   function applyThemeColor() {
     var hex = themeHex
     if (!hex) return false
+    regionColors = allRegionsColorMap(hex)
     color = hex
     lightsOn = true
     enqueue(Model.cmdRgbSetAll(hex), "Theme colour")
@@ -633,8 +607,7 @@ Item {
           lightsOn: root.lightsOn,
           brightness: root.brightness,
           color: root.color,
-          mode: root.mode,
-          zones: Model.zoneMapPayload(root.zones)
+          regions: Model.regionColorPayload(root.regionColors)
         },
         warnings: root.status.warnings,
         error: root.lastResult && root.lastResult.ok === false ? root.lastResult.error : ""
@@ -673,10 +646,9 @@ Item {
       if (a === "on") return root.restoreLights() ? "ok" : root.actionStatus
       if (a === "toggle") return root.toggleLights() ? "ok" : root.actionStatus
       if (a === "color" || a === "colour") return root.setColor(value) ? "ok" : root.actionStatus
-      if (a === "mode" || a === "effect") return root.setMode(value) ? "ok" : root.actionStatus
       if (a === "brightness") return root.setBrightness(parseInt(value, 10)) ? "ok" : root.actionStatus
       if (a === "theme") return root.applyThemeColor() ? "ok" : root.actionStatus
-      if (a === "identify") return root.identifyZone(parseInt(value, 10)) ? "ok" : root.actionStatus
+      if (a === "identify") return root.identifyRegion(value) ? "ok" : root.actionStatus
       if (a === "reload" || a === "") { root.refreshRgb(); return "ok" }
       return "unknown rgb action"
     }

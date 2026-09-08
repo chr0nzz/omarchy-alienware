@@ -17,7 +17,8 @@ Plugin id `xyzlab.alienware`. Two parts: a Quickshell plugin that runs as your u
 | CPU turbo | `intel_pstate/no_turbo` | Read and write |
 | PL1 / PL2 / peak | `intel-rapl:0` | Write if firmware permits |
 | Fan boost | `fanN_boost` | Write, additive only |
-| Per-zone RGB | OpenRGB SDK server | Read and write, no root |
+| Chassis RGB | AlienFX ELC over `/dev/hidraw0` | Write, no root |
+| Keyboard RGB | Darfon controller | Not supported yet |
 | Battery charge limit | none | Absent on this model |
 | GPU MUX / dynamic boost | none | Absent on this model |
 
@@ -27,10 +28,23 @@ Plugin id `xyzlab.alienware`. Two parts: a Quickshell plugin that runs as your u
 fan, not a curve upload. A curve raises fans above the firmware's own choice and can never lower
 them. The curve editor draws that floor.
 
-**RGB zones are not named by the hardware.** OpenRGB reports 20 generic slots on this laptop
-because the x15 R2 is missing from its platform table. About six are real. The RGB tab ships a
-first-run wizard that lights each slot so you can name or skip it. The map persists in the
-plugin's state file.
+**RGB lighting effects are not implemented.** `rgb mode` is a recognised verb that always answers
+`not-supported`. Only flat colours per region are wired up right now.
+
+## RGB regions
+
+The AW-ELC chassis controller (`187c:0550`) exposes four independently addressable regions,
+mapped from the real, sparse hardware zone ids:
+
+| Region id | Name | LEDs | Hardware zone ids |
+| --- | --- | --- | --- |
+| `power` | Power button | 1 | 0 |
+| `logo` | Lid logo | 1 | 1 |
+| `ring-top` | Ring top | 8 | 8-15 |
+| `ring-bottom` | Ring bottom | 8 | 16-23 |
+
+The keyboard is a separate Darfon controller (`0d62:babc`), root-only with no user ACL. It is not
+driven by `alienwarectl` yet and keeps whatever colour it last had.
 
 ## Privilege
 
@@ -38,24 +52,24 @@ Sysfs control nodes are root-owned, so fan, thermal, turbo and power writes go t
 on the D-Bus system bus, gated by polkit. The plugin reads sysfs directly because it is
 world-readable.
 
-RGB is outside that boundary. OpenRGB's own `60-openrgb.rules` tags the HID node `uaccess`, which
-gives your logged-in session an ACL on it, so lighting is driven as you and never touches the
-daemon. No setuid binaries, no root shell. Check it before reporting an RGB fault:
+RGB is outside that boundary. A udev rule tags the AW-ELC HID node `uaccess`, which gives your
+logged-in session an ACL on it, so lighting is driven directly over `/dev/hidraw0` as you and
+never touches the daemon. No setuid binaries, no root shell. Check it before reporting an RGB
+fault:
 
 ```
 getfacl /dev/hidraw0 | grep "$USER"
 ```
 
-If your user has no entry there, the OpenRGB package is not installed or its rule does not match
-this controller, and every RGB command will fail.
+If your user has no entry there, the udev rule is missing or does not match this controller, and
+every RGB command will fail.
 
 **The AW-ELC controller (187c:0550) wedges if two processes open its HID node at once.** The
-symptom is OpenRGB registering the device with zero zones. `alienwarectl` detects that on session
-open, USB resets the controller once, reconnects and retries, without root. If the controller
-still reports zero zones after that, `alienwarectl rgb reset` is a manual escape hatch that does
-the same reset on its own. There is a second, separate failure mode where the controller reports a
-healthy zone count and accepts writes but the LEDs stay frozen on an old frame. That one cannot be
-detected from the SDK, since OpenRGB's own model updates whether or not the hardware obeyed, so
+symptom is a status report that reads back all zero. `alienwarectl` detects that on session open,
+USB resets the controller once, reconnects and retries, without root. If the controller still
+reports an all-zero status after that, `alienwarectl rgb reset` is a manual escape hatch that does
+the same reset on its own. There is a second, separate failure mode where the controller accepts
+writes but the LEDs stay frozen on an old frame. That one cannot be detected from a status read, so
 `rgb reset` is the fix for it too, run by hand.
 
 ## power-profiles-daemon
@@ -96,7 +110,6 @@ Helper, from the cloned repo:
 ```
 cd ~/.config/omarchy/plugins/xyzlab.alienware/packaging && makepkg -si
 sudo systemctl enable --now alienwarectl.service
-systemctl --user enable --now openrgb-server.service
 ```
 
 The plugin must be a real directory. The shell's inotify watcher does not follow symlinks, which
@@ -122,10 +135,19 @@ alienwarectl curve stop
 alienwarectl turbo on
 alienwarectl pl 1 65
 alienwarectl rgb status
-alienwarectl rgb set 3 ff0044
-alienwarectl rgb set-map ff0000,00ff00,0000ff
+alienwarectl rgb set logo ff0044
+alienwarectl rgb set-all ff8800
+alienwarectl rgb set-map logo=ff0000,power=00ff00
+alienwarectl rgb brightness 75
+alienwarectl rgb identify ring-top
+alienwarectl rgb off
 alienwarectl rgb reset
 ```
+
+`rgb set`, `rgb identify` and the `region=colour` pairs in `rgb set-map` take a region id from the
+[RGB regions](#rgb-regions) table: `power`, `logo`, `ring-top` or `ring-bottom`. An unknown region
+id is a `bad-request` error that names the valid ones. `rgb mode` is recognised but always answers
+`not-supported`, lighting effects are not implemented yet.
 
 Every command prints JSON and exits non-zero on failure.
 

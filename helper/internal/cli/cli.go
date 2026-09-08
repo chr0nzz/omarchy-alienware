@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,39 +12,42 @@ import (
 
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/client"
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/daemon"
+	"github.com/chr0nzz/omarchy-alienware/helper/internal/elc"
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/fan"
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/hw"
-	"github.com/chr0nzz/omarchy-alienware/helper/internal/openrgb"
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/usbreset"
 )
 
 var Version = "0.1.2"
 
-var rgbResetter openrgb.Resetter = usbreset.New()
+var rgbResetter elc.Resetter = usbreset.New()
+
+var openRGBSessionFunc = func() (*elc.Session, error) {
+	return elc.OpenWithReset(rgbResetter)
+}
 
 const Usage = `alienwarectl <verb> [args]
 
-  daemon                         run the privileged D-Bus service
-  status                         print the full status JSON
-  profile <name>                 select a platform profile
-  boost <cpu|gpu> <0-255>        set an additive fan boost
-  curve apply <file|->           apply a fan curve from JSON
-  curve stop                     stop the fan curve and reset boost
-  turbo <on|off>                 toggle Intel turbo
-  pl <1|2|3> <watts>             set a RAPL power limit
-  gpu                            print the gpu object alone
-  rgb status                     print the RGB device and zones
-  rgb set <zone> <RRGGBB>        light one zone
-  rgb set-all <RRGGBB>           light every zone
-  rgb set-map <RRGGBB,...>       light every LED with its own colour
-  rgb mode <name>                select a lighting mode
-  rgb brightness <0-100>         set the active mode brightness
-  rgb identify <zone>            blink one zone red
-  rgb off                        blank every LED
-  rgb reset                      USB reset the AW-ELC controller
-  rgb raw                        dump the raw controller blob for debugging
-  reset-fans                     write boost 0 straight to sysfs
-  version                        print the binary version
+  daemon                            run the privileged D-Bus service
+  status                            print the full status JSON
+  profile <name>                    select a platform profile
+  boost <cpu|gpu> <0-255>           set an additive fan boost
+  curve apply <file|->              apply a fan curve from JSON
+  curve stop                        stop the fan curve and reset boost
+  turbo <on|off>                    toggle Intel turbo
+  pl <1|2|3> <watts>                set a RAPL power limit
+  gpu                               print the gpu object alone
+  rgb status                        print the RGB device and its regions
+  rgb set <region> <RRGGBB>         light one region: power, logo, ring-top, ring-bottom
+  rgb set-all <RRGGBB>              light every region
+  rgb set-map <region=RRGGBB,...>   light named regions in one transaction
+  rgb mode <name>                   not supported on the alienfx backend yet
+  rgb brightness <0-100>            set the overall brightness
+  rgb identify <region>             blink one region red
+  rgb off                           blank every region
+  rgb reset                         USB reset the AW-ELC controller
+  reset-fans                        write boost 0 straight to sysfs
+  version                           print the binary version
 `
 
 type Env struct {
@@ -270,155 +272,217 @@ func runRGB(env Env, args []string) int {
 	if len(args) == 0 {
 		return emitError(env.Stdout, badRequest("rgb takes status, set, set-all, set-map, mode, brightness, identify, reset or off"))
 	}
-	if args[0] == "reset" {
-		return runRGBReset(env)
-	}
-	session, err := openrgb.OpenWithReset(openrgb.Addr(), rgbResetter)
-	if err != nil {
-		return emitError(env.Stdout, err)
-	}
-	defer session.Close()
-
 	switch args[0] {
-	case "status":
-		return emitOK(env.Stdout, session.Status())
-
-	case "set":
-		if len(args) != 3 {
-			return emitError(env.Stdout, badRequest("rgb set takes a zone and a colour, for example rgb set 0 ff8800"))
-		}
-		index, err := openrgb.ResolveZone(session.Ctrl, args[1])
-		if err != nil {
-			return emitError(env.Stdout, err)
-		}
-		color, err := openrgb.ParseHex(args[2])
-		if err != nil {
-			return emitError(env.Stdout, badRequest("%s", err.Error()))
-		}
-		if err := session.SetZone(index, color); err != nil {
-			return emitError(env.Stdout, err)
-		}
-		zone, _ := session.ZoneSummary(index)
-		return emitOK(env.Stdout, struct {
-			OK         bool               `json:"ok"`
-			Zone       openrgb.StatusZone `json:"zone"`
-			Color      string             `json:"color"`
-			ActiveMode string             `json:"activeMode"`
-		}{true, zone, openrgb.HexString(color), session.ActiveModeName()})
-
-	case "set-all":
-		if len(args) != 2 {
-			return emitError(env.Stdout, badRequest("rgb set-all takes a colour, for example rgb set-all ff8800"))
-		}
-		color, err := openrgb.ParseHex(args[1])
-		if err != nil {
-			return emitError(env.Stdout, badRequest("%s", err.Error()))
-		}
-		if err := session.SetAll(color); err != nil {
-			return emitError(env.Stdout, err)
-		}
-		return emitOK(env.Stdout, struct {
-			OK         bool   `json:"ok"`
-			Color      string `json:"color"`
-			ActiveMode string `json:"activeMode"`
-		}{true, openrgb.HexString(color), session.ActiveModeName()})
-
-	case "set-map":
-		if len(args) != 2 {
-			return emitError(env.Stdout, badRequest("rgb set-map takes a comma separated list of colours, one per LED, for example rgb set-map ff0000,00ff00,0000ff"))
-		}
-		parts := strings.Split(args[1], ",")
-		colors := make([]uint32, len(parts))
-		for i, part := range parts {
-			color, err := openrgb.ParseHex(part)
-			if err != nil {
-				return emitError(env.Stdout, badRequest("%s", err.Error()))
-			}
-			colors[i] = color
-		}
-		if err := session.SetMap(colors); err != nil {
-			return emitError(env.Stdout, err)
-		}
-		hexes := make([]string, len(colors))
-		for i, color := range colors {
-			hexes[i] = openrgb.HexString(color)
-		}
-		return emitOK(env.Stdout, struct {
-			OK         bool     `json:"ok"`
-			Colors     []string `json:"colors"`
-			ActiveMode string   `json:"activeMode"`
-		}{true, hexes, session.ActiveModeName()})
-
+	case "reset":
+		return runRGBReset(env)
 	case "mode":
-		if len(args) != 2 {
-			return emitError(env.Stdout, badRequest("rgb mode takes a mode name"))
-		}
-		name, err := session.SetMode(args[1])
-		if err != nil {
-			return emitError(env.Stdout, err)
-		}
-		return emitOK(env.Stdout, struct {
-			OK   bool   `json:"ok"`
-			Mode string `json:"mode"`
-		}{true, name})
-
+		return emitError(env.Stdout, notSupported("lighting effects are not implemented on the alienfx backend yet"))
+	case "status":
+		return runRGBStatus(env)
+	case "set":
+		return runRGBSet(env, args[1:])
+	case "set-all":
+		return runRGBSetAll(env, args[1:])
+	case "set-map":
+		return runRGBSetMap(env, args[1:])
 	case "brightness":
-		if len(args) != 2 {
-			return emitError(env.Stdout, badRequest("rgb brightness takes a percentage 0-100"))
-		}
-		percent, err := strconv.Atoi(args[1])
-		if err != nil || percent < 0 || percent > 100 {
-			return emitError(env.Stdout, badRequest("the brightness must be a whole number 0-100, got %q", args[1]))
-		}
-		value, err := session.SetBrightness(percent)
-		if err != nil {
-			return emitError(env.Stdout, err)
-		}
-		return emitOK(env.Stdout, struct {
-			OK         bool `json:"ok"`
-			Brightness int  `json:"brightness"`
-			Value      int  `json:"value"`
-		}{true, percent, int(value)})
-
+		return runRGBBrightness(env, args[1:])
 	case "identify":
-		if len(args) != 2 {
-			return emitError(env.Stdout, badRequest("rgb identify takes a zone"))
-		}
-		index, err := openrgb.ResolveZone(session.Ctrl, args[1])
-		if err != nil {
-			return emitError(env.Stdout, err)
-		}
-		if err := session.Identify(index, 3, 250*time.Millisecond); err != nil {
-			return emitError(env.Stdout, err)
-		}
-		zone, _ := session.ZoneSummary(index)
-		return emitOK(env.Stdout, struct {
-			OK         bool               `json:"ok"`
-			Zone       openrgb.StatusZone `json:"zone"`
-			ActiveMode string             `json:"activeMode"`
-		}{true, zone, session.ActiveModeName()})
-
-	case "raw":
-		serverVersion, clientVersion, body, err := session.Raw()
-		if err != nil {
-			return emitError(env.Stdout, err)
-		}
-		return emitOK(env.Stdout, struct {
-			OK            bool   `json:"ok"`
-			ServerVersion uint32 `json:"serverVersion"`
-			ClientVersion uint32 `json:"clientVersion"`
-			Bytes         int    `json:"bytes"`
-			Hex           string `json:"hex"`
-		}{true, serverVersion, clientVersion, len(body), hex.EncodeToString(body)})
+		return runRGBIdentify(env, args[1:])
 	case "off":
-		if err := session.Off(); err != nil {
-			return emitError(env.Stdout, err)
-		}
-		return emitOK(env.Stdout, struct {
-			OK bool `json:"ok"`
-		}{true})
+		return runRGBOff(env)
 	}
 	return emitError(env.Stdout, badRequest("unknown rgb verb %q", args[0]))
+}
+
+func openRGBSession(env Env) (*elc.Session, bool) {
+	session, err := openRGBSessionFunc()
+	if err != nil {
+		emitError(env.Stdout, err)
+		return nil, false
+	}
+	return session, true
+}
+
+func runRGBStatus(env Env) int {
+	session, ok := openRGBSession(env)
+	if !ok {
+		return 1
+	}
+	defer session.Close()
+	device, regions := session.Status()
+	return emitOK(env.Stdout, struct {
+		OK      bool               `json:"ok"`
+		Backend string             `json:"backend"`
+		Device  elc.DeviceStatus   `json:"device"`
+		Regions []elc.RegionStatus `json:"regions"`
+	}{true, "alienfx", device, regions})
+}
+
+func runRGBSet(env Env, args []string) int {
+	if len(args) != 2 {
+		return emitError(env.Stdout, badRequest("rgb set takes a region and a colour, for example rgb set logo ff8800"))
+	}
+	region, rerr := elc.ResolveRegion(args[0])
+	if rerr != nil {
+		return emitError(env.Stdout, rerr)
+	}
+	r, g, b, cerr := parseHexColor(args[1])
+	if cerr != nil {
+		return emitError(env.Stdout, cerr)
+	}
+	session, ok := openRGBSession(env)
+	if !ok {
+		return 1
+	}
+	defer session.Close()
+	if err := session.SetRegion(region, r, g, b); err != nil {
+		return emitError(env.Stdout, err)
+	}
+	return emitOK(env.Stdout, struct {
+		OK     bool   `json:"ok"`
+		Region string `json:"region"`
+		Color  string `json:"color"`
+	}{true, string(region.ID), hexColor(r, g, b)})
+}
+
+func runRGBSetAll(env Env, args []string) int {
+	if len(args) != 1 {
+		return emitError(env.Stdout, badRequest("rgb set-all takes a colour, for example rgb set-all ff8800"))
+	}
+	r, g, b, cerr := parseHexColor(args[0])
+	if cerr != nil {
+		return emitError(env.Stdout, cerr)
+	}
+	session, ok := openRGBSession(env)
+	if !ok {
+		return 1
+	}
+	defer session.Close()
+	if err := session.SetAll(r, g, b); err != nil {
+		return emitError(env.Stdout, err)
+	}
+	return emitOK(env.Stdout, struct {
+		OK    bool   `json:"ok"`
+		Color string `json:"color"`
+	}{true, hexColor(r, g, b)})
+}
+
+func parseRegionColorMap(s string) ([]elc.RegionColor, error) {
+	parts := strings.Split(s, ",")
+	seen := map[elc.RegionID]bool{}
+	entries := make([]elc.RegionColor, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 || strings.TrimSpace(kv[0]) == "" {
+			return nil, badRequest("set-map entries must be region=RRGGBB, got %q", part)
+		}
+		region, rerr := elc.ResolveRegion(strings.TrimSpace(kv[0]))
+		if rerr != nil {
+			return nil, rerr
+		}
+		r, g, b, cerr := parseHexColor(kv[1])
+		if cerr != nil {
+			return nil, cerr
+		}
+		if seen[region.ID] {
+			return nil, badRequest("region %q is repeated in set-map", region.ID)
+		}
+		seen[region.ID] = true
+		entries = append(entries, elc.RegionColor{Region: region, R: r, G: g, B: b})
+	}
+	if len(entries) == 0 {
+		return nil, badRequest("set-map needs at least one region=RRGGBB pair")
+	}
+	return entries, nil
+}
+
+func runRGBSetMap(env Env, args []string) int {
+	if len(args) != 1 {
+		return emitError(env.Stdout, badRequest("rgb set-map takes a comma separated list of region=colour pairs, for example rgb set-map logo=ff8800,power=00ff00"))
+	}
+	entries, perr := parseRegionColorMap(args[0])
+	if perr != nil {
+		return emitError(env.Stdout, perr)
+	}
+	session, ok := openRGBSession(env)
+	if !ok {
+		return 1
+	}
+	defer session.Close()
+	if err := session.SetMap(entries); err != nil {
+		return emitError(env.Stdout, err)
+	}
+	out := make(map[string]string, len(entries))
+	for _, e := range entries {
+		out[string(e.Region.ID)] = hexColor(e.R, e.G, e.B)
+	}
+	return emitOK(env.Stdout, struct {
+		OK      bool              `json:"ok"`
+		Regions map[string]string `json:"regions"`
+	}{true, out})
+}
+
+func runRGBBrightness(env Env, args []string) int {
+	if len(args) != 1 {
+		return emitError(env.Stdout, badRequest("rgb brightness takes a percentage 0-100"))
+	}
+	percent, perr := strconv.Atoi(args[0])
+	if perr != nil || percent < 0 || percent > 100 {
+		return emitError(env.Stdout, badRequest("the brightness must be a whole number 0-100, got %q", args[0]))
+	}
+	session, ok := openRGBSession(env)
+	if !ok {
+		return 1
+	}
+	defer session.Close()
+	if err := session.SetBrightness(percent); err != nil {
+		return emitError(env.Stdout, err)
+	}
+	return emitOK(env.Stdout, struct {
+		OK         bool `json:"ok"`
+		Brightness int  `json:"brightness"`
+	}{true, percent})
+}
+
+func runRGBIdentify(env Env, args []string) int {
+	if len(args) != 1 {
+		return emitError(env.Stdout, badRequest("rgb identify takes a region"))
+	}
+	region, rerr := elc.ResolveRegion(args[0])
+	if rerr != nil {
+		return emitError(env.Stdout, rerr)
+	}
+	session, ok := openRGBSession(env)
+	if !ok {
+		return 1
+	}
+	defer session.Close()
+	if err := session.Identify(region, 3, 250*time.Millisecond); err != nil {
+		return emitError(env.Stdout, err)
+	}
+	return emitOK(env.Stdout, struct {
+		OK     bool   `json:"ok"`
+		Region string `json:"region"`
+	}{true, string(region.ID)})
+}
+
+func runRGBOff(env Env) int {
+	session, ok := openRGBSession(env)
+	if !ok {
+		return 1
+	}
+	defer session.Close()
+	if err := session.Off(); err != nil {
+		return emitError(env.Stdout, err)
+	}
+	return emitOK(env.Stdout, struct {
+		OK bool `json:"ok"`
+	}{true})
 }
 
 func runRGBReset(env Env) int {

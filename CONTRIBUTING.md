@@ -21,8 +21,8 @@ Helper changes need a rebuild and `systemctl restart alienwarectl.service` befor
 | `Service.qml` | One per session: polling, state file, action queue, RGB, IPC |
 | `BarWidget.qml` | The bar pill, one per monitor |
 | `Panel.qml` | The popup with the fan, profile, power and RGB tabs |
-| `components/` | Curve editor, fan card, mode tile, readout row, slider, zone row |
-| `Model.js` | Pure logic: parsing, curve maths, zone mapping, formatting |
+| `components/` | Curve editor, fan card, mode tile, readout row, slider, region row |
+| `Model.js` | Pure logic: parsing, curve maths, region colours, formatting |
 | `tests/` | Node tests for `Model.js` |
 | `helper/cmd/alienwarectl` | Entry point for both the daemon and the CLI |
 | `helper/internal/cli` | Verb dispatch and JSON output |
@@ -30,7 +30,8 @@ Helper changes need a rebuild and `systemctl restart alienwarectl.service` befor
 | `helper/internal/hw` | sysfs reads and writes |
 | `helper/internal/fan` | Pure logic: curve parsing, clamping, interpolation, hysteresis |
 | `helper/internal/client` | D-Bus client used by the CLI |
-| `helper/internal/openrgb` | OpenRGB SDK protocol client |
+| `helper/internal/elc` | AlienFX ELC protocol, the region map and the RGB session |
+| `helper/internal/hidraw` | Pure-Go hidraw ioctl layer |
 | `packaging/` | PKGBUILD, systemd units, D-Bus policy, polkit action and rule |
 
 ## Tests

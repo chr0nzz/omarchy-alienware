@@ -14,8 +14,6 @@ var HOT_MIN = 50
 var HOT_MAX = 110
 var HOT_DEFAULT = 90
 
-var RGB_MODES = ["Static", "Flashing", "Morph", "Spectrum Cycle", "Rainbow Wave", "Breathing"]
-
 var PROFILE_ORDER = ["low-power", "quiet", "balanced", "balanced-performance", "performance", "custom"]
 
 var PROFILE_LABELS = {
@@ -64,7 +62,14 @@ var ERROR_MESSAGES = {
 
 var CURVE_NOTE = "Boost is additive. It can only push the fans above the firmware curve, never below it."
 var PL_LOCKED_NOTE = "Locked by firmware"
-var ZONE_WIZARD_NOTE = "This laptop reports generic slots. Light each one and name the ones you can see."
+var EFFECTS_NOTE = "Effects are not implemented yet. Set a colour for the selected regions instead."
+
+var REGIONS = [
+  { id: "power", name: "Power button", ledCount: 1 },
+  { id: "logo", name: "Lid logo", ledCount: 1 },
+  { id: "ring-top", name: "Ring top", ledCount: 8 },
+  { id: "ring-bottom", name: "Ring bottom", ledCount: 8 }
+]
 
 function toList(value) {
   if (!value || typeof value !== "object" || typeof value.length !== "number") return []
@@ -647,177 +652,82 @@ function hexPreview(value) {
   return hex ? "#" + hex : ""
 }
 
-function normalizeMode(name, available) {
-  var list = toList(available)
-  if (!list.length) list = RGB_MODES.slice()
-  var want = String(name || "").trim().toLowerCase()
-  for (var i = 0; i < list.length; i++) {
-    if (String(list[i] || "").trim().toLowerCase() === want) return String(list[i])
-  }
-  return String(list[0])
-}
-
-function modeList(rgb) {
-  var list = toList(rgb && rgb.device ? rgb.device.modes : null)
+function regionIds() {
   var out = []
-  for (var i = 0; i < list.length; i++) {
-    var m = String(list[i] || "").trim()
-    if (m && out.indexOf(m) === -1) out.push(m)
-  }
-  return out.length ? out : RGB_MODES.slice()
+  for (var i = 0; i < REGIONS.length; i++) out.push(REGIONS[i].id)
+  return out
 }
 
-function nextMode(available, current, direction) {
-  var list = modeList({ device: { modes: available } })
-  var step = toInt(direction, 1)
-  if (step === 0) step = 1
-  var idx = list.indexOf(normalizeMode(current, list))
-  if (idx === -1) idx = 0
-  var next = (idx + step) % list.length
-  if (next < 0) next += list.length
-  return list[next]
+function regionById(id) {
+  var want = String(id || "")
+  for (var i = 0; i < REGIONS.length; i++) if (REGIONS[i].id === want) return REGIONS[i]
+  return null
+}
+
+function normalizeRegion(raw, fallback) {
+  var src = isObject(raw) ? raw : {}
+  return {
+    id: String(src.id || (fallback ? fallback.id : "")),
+    name: String(src.name || (fallback ? fallback.name : "")),
+    ledCount: toInt(src.ledCount, fallback ? fallback.ledCount : 0)
+  }
+}
+
+function normalizeRegions(raw) {
+  var list = toList(raw)
+  var byId = {}
+  for (var i = 0; i < list.length; i++) {
+    var r = isObject(list[i]) ? list[i] : {}
+    var id = String(r.id || "")
+    if (id) byId[id] = r
+  }
+  var out = []
+  for (var i = 0; i < REGIONS.length; i++) {
+    var fallback = REGIONS[i]
+    out.push(normalizeRegion(byId[fallback.id], fallback))
+  }
+  return out
 }
 
 function normalizeRgbStatus(raw) {
   var src = isObject(raw) ? raw : {}
   var dev = isObject(src.device) ? src.device : {}
-  var zoneList = toList(src.zones)
-  var zones = []
-  for (var i = 0; i < zoneList.length; i++) {
-    var z = isObject(zoneList[i]) ? zoneList[i] : {}
-    zones.push({
-      index: toInt(z.index, i),
-      name: String(z.name || ""),
-      ledCount: toInt(z.ledCount, 0)
-    })
-  }
-  var count = toInt(dev.zoneCount, zones.length)
   return {
     ok: src.ok !== false,
-    connected: src.connected === true,
-    server: String(src.server || ""),
+    backend: String(src.backend || ""),
     device: {
-      index: toInt(dev.index, 0),
-      name: String(dev.name || ""),
-      zoneCount: Math.max(0, count),
-      ledCount: toInt(dev.ledCount, 0),
-      activeMode: String(dev.activeMode || ""),
-      modes: modeList({ device: dev }),
-      colorModes: stringList(dev.colorModes)
+      path: String(dev.path || ""),
+      vendorId: String(dev.vendorId || ""),
+      productId: String(dev.productId || ""),
+      ready: dev.ready === true
     },
-    zones: zones
+    regions: normalizeRegions(src.regions)
   }
 }
 
-function stringList(value) {
-  var list = toList(value)
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var name = String(list[i] === undefined || list[i] === null ? "" : list[i]).trim()
-    if (name) out.push(name)
+function regionColorPayload(regions) {
+  var src = isObject(regions) ? regions : {}
+  var ids = regionIds()
+  var out = {}
+  for (var i = 0; i < ids.length; i++) {
+    var hex = normalizeHex(src[ids[i]])
+    if (hex) out[ids[i]] = hex
   }
   return out
 }
 
-function modeTakesColor(mode, colorModes) {
-  var want = String(mode || "").trim()
-  if (!want) return false
-  var list = stringList(colorModes)
-  for (var i = 0; i < list.length; i++) if (list[i] === want) return true
+function hasAnyKey(obj) {
+  if (!isObject(obj)) return false
+  for (var k in obj) return true
   return false
 }
 
 function restoreSequence(state) {
   var out = []
   if (!isObject(state) || state.lightsOn !== true) return out
-  var mode = String(state.mode || "").trim()
-  var hex = normalizeHex(state.color)
-  if (mode) out.push({ argv: cmdRgbMode(mode), label: "Effect " + mode })
   out.push({ argv: cmdRgbBrightness(state.brightness), label: "Brightness" })
-  if (hex && modeTakesColor(mode, state.colorModes)) {
-    out.push({ argv: cmdRgbSetAll(hex), label: "Colour" })
-  }
-  return out
-}
-
-function slotLabel(index) {
-  return "Slot " + (toInt(index, 0) + 1)
-}
-
-function mergeZones(deviceZones, savedZones, zoneCount) {
-  var device = toList(deviceZones)
-  var saved = toList(savedZones)
-  var count = toInt(zoneCount, NaN)
-  if (!isFinite(count) || count < 0) count = device.length
-  var byIndex = {}
-  for (var s = 0; s < saved.length; s++) {
-    var sv = isObject(saved[s]) ? saved[s] : null
-    if (!sv) continue
-    var si = toInt(sv.index, NaN)
-    if (!isFinite(si) || si < 0) continue
-    byIndex[si] = sv
-  }
-  var out = []
-  for (var i = 0; i < count; i++) {
-    var dev = isObject(device[i]) ? device[i] : {}
-    var devName = String(dev.name || "")
-    var savedEntry = byIndex[i]
-    var name = savedEntry ? String(savedEntry.name || "").trim() : ""
-    var known = name !== ""
-    out.push({
-      index: i,
-      name: name,
-      deviceName: devName,
-      ledCount: toInt(dev.ledCount, 0),
-      known: known,
-      enabled: known && (savedEntry.enabled !== false),
-      label: known ? name : (devName && devName.toLowerCase() !== "unknown" ? devName : slotLabel(i))
-    })
-  }
-  return out
-}
-
-function zoneConflicts(deviceZones, savedZones, zoneCount) {
-  var device = toList(deviceZones)
-  var count = toInt(zoneCount, NaN)
-  if (!isFinite(count) || count < 0) count = device.length
-  var dropped = []
-  var saved = toList(savedZones)
-  for (var i = 0; i < saved.length; i++) {
-    var sv = isObject(saved[i]) ? saved[i] : null
-    if (!sv) continue
-    var idx = toInt(sv.index, NaN)
-    if (!isFinite(idx) || idx < 0 || idx >= count) dropped.push(sv)
-  }
-  return { dropped: dropped, deviceCount: count, savedCount: saved.length }
-}
-
-function namedZones(zones) {
-  var list = toList(zones)
-  var out = []
-  for (var i = 0; i < list.length; i++) if (list[i] && list[i].known) out.push(list[i])
-  return out
-}
-
-function unnamedZones(zones) {
-  var list = toList(zones)
-  var out = []
-  for (var i = 0; i < list.length; i++) if (list[i] && !list[i].known) out.push(list[i])
-  return out
-}
-
-function zonesNeedWizard(zones) {
-  return namedZones(zones).length === 0 && toList(zones).length > 0
-}
-
-function zoneMapPayload(zones) {
-  var list = toList(zones)
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var z = list[i]
-    if (!z || !z.known) continue
-    out.push({ index: toInt(z.index, i), name: String(z.name || ""), enabled: z.enabled !== false })
-  }
+  var map = regionColorPayload(state.regions)
+  if (hasAnyKey(map)) out.push({ argv: cmdRgbSetMap(map), label: "Colour" })
   return out
 }
 
@@ -834,103 +744,10 @@ function powerLimitNote(constraint) {
   return ""
 }
 
-function unionZoneMaps(primary, extra) {
-  var out = []
-  var seen = {}
-  var a = toList(primary)
-  for (var i = 0; i < a.length; i++) {
-    var p = a[i]
-    if (!p) continue
-    var pi = toInt(p.index, -1)
-    if (pi < 0 || seen[pi]) continue
-    seen[pi] = true
-    out.push({ index: pi, name: String(p.name || ""), enabled: p.enabled !== false })
-  }
-  var b = toList(extra)
-  for (var k = 0; k < b.length; k++) {
-    var q = b[k]
-    if (!q) continue
-    var qi = toInt(q.index, -1)
-    if (qi < 0 || seen[qi]) continue
-    if (!String(q.name || "").trim()) continue
-    seen[qi] = true
-    out.push({ index: qi, name: String(q.name || ""), enabled: q.enabled !== false })
-  }
-  out.sort(function(x, y) { return x.index - y.index })
-  return out
-}
-
 function isKnownPreset(name) {
   var list = presetNames()
   for (var i = 0; i < list.length; i++) if (list[i] === String(name || "")) return true
   return false
-}
-
-function setZoneName(zones, index, name) {
-  var list = toList(zones)
-  var i = toInt(index, -1)
-  var clean = String(name === undefined || name === null ? "" : name).trim()
-  var out = []
-  for (var k = 0; k < list.length; k++) {
-    var z = list[k]
-    if (!z || z.index !== i) { out.push(z); continue }
-    out.push({
-      index: z.index,
-      name: clean,
-      deviceName: z.deviceName,
-      ledCount: z.ledCount,
-      known: clean !== "",
-      enabled: clean !== "",
-      label: clean !== "" ? clean : (z.deviceName && z.deviceName.toLowerCase() !== "unknown" ? z.deviceName : slotLabel(z.index))
-    })
-  }
-  return out
-}
-
-function toggleZoneEnabled(zones, index) {
-  var list = toList(zones)
-  var i = toInt(index, -1)
-  var out = []
-  for (var k = 0; k < list.length; k++) {
-    var z = list[k]
-    if (!z || z.index !== i || !z.known) { out.push(z); continue }
-    out.push({
-      index: z.index,
-      name: z.name,
-      deviceName: z.deviceName,
-      ledCount: z.ledCount,
-      known: z.known,
-      enabled: !z.enabled,
-      label: z.label
-    })
-  }
-  return out
-}
-
-function nextSlot(zones, current, direction) {
-  var list = toList(zones)
-  if (!list.length) return -1
-  var step = toInt(direction, 1)
-  if (step === 0) step = 1
-  var idx = -1
-  for (var i = 0; i < list.length; i++) if (list[i] && list[i].index === toInt(current, -1)) idx = i
-  if (idx === -1) return list[0].index
-  var next = (idx + step) % list.length
-  if (next < 0) next += list.length
-  return list[next].index
-}
-
-function wizardProgress(zones, cursor) {
-  var list = toList(zones)
-  var total = list.length
-  var pos = 0
-  for (var i = 0; i < list.length; i++) if (list[i] && list[i].index === toInt(cursor, -1)) pos = i
-  return {
-    total: total,
-    position: total ? pos + 1 : 0,
-    named: namedZones(list).length,
-    done: total > 0 && pos + 1 >= total
-  }
 }
 
 function brightnessStep(current, delta, step) {
@@ -1040,22 +857,10 @@ function barTooltip(status, health, lastResult) {
 function parseState(raw) {
   var parsed = parseJson(raw)
   var src = isObject(parsed) ? parsed : {}
-  var zones = []
-  var list = toList(src.zones)
-  for (var i = 0; i < list.length; i++) {
-    var z = isObject(list[i]) ? list[i] : null
-    if (!z) continue
-    var idx = toInt(z.index, NaN)
-    if (!isFinite(idx) || idx < 0) continue
-    var name = String(z.name || "").trim()
-    if (!name) continue
-    zones.push({ index: idx, name: name, enabled: z.enabled !== false })
-  }
   return {
     version: toInt(src.version, 1),
-    zones: zones,
+    regions: regionColorPayload(src.regions),
     color: normalizeHex(src.color),
-    mode: String(src.mode || ""),
     brightness: src.brightness === undefined || src.brightness === null ? 100 : clampBrightness(src.brightness),
     lightsOn: src.lightsOn !== false,
     themeSync: src.themeSync === true,
@@ -1071,11 +876,10 @@ function parseState(raw) {
 function buildStatePayload(state) {
   var src = isObject(state) ? state : {}
   return {
-    version: 1,
+    version: 2,
     savedAt: toInt(src.savedAt, 0),
-    zones: zoneMapPayload(src.zones),
+    regions: regionColorPayload(src.regions),
     color: normalizeHex(src.color),
-    mode: String(src.mode || ""),
     brightness: clampBrightness(src.brightness),
     lightsOn: src.lightsOn !== false,
     themeSync: src.themeSync === true,
@@ -1096,11 +900,21 @@ function cmdTurbo(on) { return ["alienwarectl", "turbo", on ? "on" : "off"] }
 function cmdPl(index, watts) { return ["alienwarectl", "pl", String(clampInt(index, 1, 3, 1)), String(Math.max(1, toInt(watts, 1)))] }
 function cmdGpu() { return ["alienwarectl", "gpu"] }
 function cmdRgbStatus() { return ["alienwarectl", "rgb", "status"] }
-function cmdRgbSet(zone, hex) { return ["alienwarectl", "rgb", "set", String(toInt(zone, 0)), normalizeHex(hex)] }
+function cmdRgbSet(regionId, hex) { return ["alienwarectl", "rgb", "set", String(regionId || ""), normalizeHex(hex)] }
 function cmdRgbSetAll(hex) { return ["alienwarectl", "rgb", "set-all", normalizeHex(hex)] }
-function cmdRgbMode(name) { return ["alienwarectl", "rgb", "mode", String(name || "Static")] }
+function cmdRgbSetMap(map) {
+  var ids = regionIds()
+  var parts = []
+  var src = isObject(map) ? map : {}
+  for (var i = 0; i < ids.length; i++) {
+    var hex = normalizeHex(src[ids[i]])
+    if (!hex) continue
+    parts.push(ids[i] + "=" + hex)
+  }
+  return ["alienwarectl", "rgb", "set-map", parts.join(",")]
+}
 function cmdRgbBrightness(value) { return ["alienwarectl", "rgb", "brightness", String(clampBrightness(value))] }
-function cmdRgbIdentify(zone) { return ["alienwarectl", "rgb", "identify", String(toInt(zone, 0))] }
+function cmdRgbIdentify(regionId) { return ["alienwarectl", "rgb", "identify", String(regionId || "")] }
 function cmdRgbOff() { return ["alienwarectl", "rgb", "off"] }
 function cmdVersion() { return ["alienwarectl", "version"] }
 
