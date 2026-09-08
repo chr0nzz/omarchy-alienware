@@ -142,8 +142,8 @@ func TestEmitOKWritesOneLine(t *testing.T) {
 
 func TestUsageListsEveryContractVerb(t *testing.T) {
 	for _, verb := range []string{"status", "profile", "boost", "curve apply", "curve stop",
-		"turbo", "pl", "gpu", "rgb status", "rgb set", "rgb set-all", "rgb mode",
-		"rgb brightness", "rgb identify", "rgb off", "version"} {
+		"turbo", "pl", "gpu", "rgb status", "rgb set", "rgb set-all", "rgb set-map", "rgb mode",
+		"rgb brightness", "rgb identify", "rgb off", "rgb reset", "version"} {
 		if !strings.Contains(Usage, verb) {
 			t.Errorf("usage does not mention %q", verb)
 		}

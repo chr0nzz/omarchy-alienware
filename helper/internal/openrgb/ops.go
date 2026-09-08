@@ -9,6 +9,7 @@ import (
 )
 
 const DeviceIndexEnv = "ALIENWARECTL_RGB_DEVICE"
+const AddrEnv = "ALIENWARECTL_RGB_ADDR"
 
 type StatusZone struct {
 	Index    int    `json:"index"`
@@ -44,6 +45,14 @@ func DeviceIndex() int {
 		return 0
 	}
 	return v
+}
+
+func Addr() string {
+	raw := strings.TrimSpace(os.Getenv(AddrEnv))
+	if raw == "" {
+		return DefaultAddr
+	}
+	return raw
 }
 
 type Session struct {
@@ -99,10 +108,7 @@ func (s *Session) Status() Status {
 			colorModes = append(colorModes, m.Name)
 		}
 	}
-	active := ""
-	if s.Ctrl.ActiveMode >= 0 && int(s.Ctrl.ActiveMode) < len(s.Ctrl.Modes) {
-		active = s.Ctrl.Modes[s.Ctrl.ActiveMode].Name
-	}
+	active := s.ActiveModeName()
 	zones := make([]StatusZone, 0, len(s.Ctrl.Zones))
 	for i, z := range s.Ctrl.Zones {
 		zones = append(zones, StatusZone{Index: i, Name: z.Name, LEDCount: int(z.LEDsCount)})
@@ -122,6 +128,14 @@ func (s *Session) Status() Status {
 		},
 		Zones: zones,
 	}
+}
+
+func (s *Session) ActiveModeName() string {
+	active := int(s.Ctrl.ActiveMode)
+	if active < 0 || active >= len(s.Ctrl.Modes) {
+		return ""
+	}
+	return s.Ctrl.Modes[active].Name
 }
 
 func ResolveZone(ctrl Controller, arg string) (int, error) {
@@ -222,6 +236,20 @@ func (s *Session) SetAll(color uint32) error {
 	return s.Client.UpdateLEDs(s.Ctrl.Index, colors)
 }
 
+func (s *Session) SetMap(colors []uint32) error {
+	count := len(s.Ctrl.LEDs)
+	if count == 0 {
+		return newError(CodeNotSupported, "the device reports no LEDs")
+	}
+	if len(colors) != count {
+		return newError(CodeBadRequest, "set-map needs %d colours, got %d", count, len(colors))
+	}
+	if err := s.ensurePerLEDMode(); err != nil {
+		return err
+	}
+	return s.Client.UpdateLEDs(s.Ctrl.Index, colors)
+}
+
 func (s *Session) SetMode(name string) (string, error) {
 	index, err := ModeIndex(s.Ctrl, name)
 	if err != nil {
@@ -261,6 +289,9 @@ func (s *Session) SetBrightness(percent int) (uint32, error) {
 	if m.Flags&ModeFlagHasBrightness == 0 {
 		return 0, newError(CodeNotSupported, "mode %q does not support brightness", m.Name)
 	}
+	if m.BrightnessMax == 0 && m.BrightnessMax <= m.BrightnessMin {
+		return 0, newError(CodeNotSupported, "mode %q claims brightness support but reports no usable range, refusing to write 0", m.Name)
+	}
 	m.Brightness = ScaleBrightness(m, percent)
 	if err := s.Client.UpdateMode(s.Ctrl.Index, int32(active), m); err != nil {
 		return 0, err
@@ -277,6 +308,7 @@ func (s *Session) Identify(index int, blinks int, period time.Duration) error {
 	if index < 0 || index >= len(s.Ctrl.Zones) {
 		return newError(CodeBadRequest, "zone %d does not exist", index)
 	}
+	savedMode := s.Ctrl.ActiveMode
 	saved := s.savedColors()
 	red := Color(255, 0, 0)
 	for i := 0; i < blinks; i++ {
@@ -289,10 +321,24 @@ func (s *Session) Identify(index int, blinks int, period time.Duration) error {
 		}
 		time.Sleep(period)
 	}
-	if saved == nil {
+	if saved != nil {
+		if err := s.Client.UpdateLEDs(s.Ctrl.Index, saved); err != nil {
+			return err
+		}
+	}
+	return s.restoreMode(savedMode)
+}
+
+func (s *Session) restoreMode(index int32) error {
+	if index == s.Ctrl.ActiveMode || index < 0 || int(index) >= len(s.Ctrl.Modes) {
 		return nil
 	}
-	return s.Client.UpdateLEDs(s.Ctrl.Index, saved)
+	m := s.Ctrl.Modes[index]
+	if err := s.Client.UpdateMode(s.Ctrl.Index, index, m); err != nil {
+		return err
+	}
+	s.Ctrl.ActiveMode = index
+	return nil
 }
 
 func (s *Session) savedColors() []uint32 {

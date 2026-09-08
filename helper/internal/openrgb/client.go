@@ -24,6 +24,7 @@ const (
 	CodeBadRequest   = "bad-request"
 	CodeNotSupported = "not-supported"
 	CodeInternal     = "internal"
+	CodeWedged       = "aw-elc-wedged"
 )
 
 type Error struct {

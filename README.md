@@ -49,6 +49,15 @@ getfacl /dev/hidraw0 | grep "$USER"
 If your user has no entry there, the OpenRGB package is not installed or its rule does not match
 this controller, and every RGB command will fail.
 
+**The AW-ELC controller (187c:0550) wedges if two processes open its HID node at once.** The
+symptom is OpenRGB registering the device with zero zones. `alienwarectl` detects that on session
+open, USB resets the controller once, reconnects and retries, without root. If the controller
+still reports zero zones after that, `alienwarectl rgb reset` is a manual escape hatch that does
+the same reset on its own. There is a second, separate failure mode where the controller reports a
+healthy zone count and accepts writes but the LEDs stay frozen on an old frame. That one cannot be
+detected from the SDK, since OpenRGB's own model updates whether or not the hardware obeyed, so
+`rgb reset` is the fix for it too, run by hand.
+
 ## power-profiles-daemon
 
 power-profiles-daemon exposes three of the six profiles and re-applies its own choice on resume
@@ -114,6 +123,8 @@ alienwarectl turbo on
 alienwarectl pl 1 65
 alienwarectl rgb status
 alienwarectl rgb set 3 ff0044
+alienwarectl rgb set-map ff0000,00ff00,0000ff
+alienwarectl rgb reset
 ```
 
 Every command prints JSON and exits non-zero on failure.
