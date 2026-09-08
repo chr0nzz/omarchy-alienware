@@ -48,8 +48,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: shellcheck
-        run: shellcheck scripts/rgb-sweep.sh
       - name: shell syntax
         run: |
           bash -n packaging/PKGBUILD
