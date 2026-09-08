@@ -81,6 +81,14 @@ func (s *Session) Close() error {
 	return s.Client.Close()
 }
 
+func (s *Session) Raw() (uint32, uint32, []byte, error) {
+	body, err := s.Client.ControllerRaw(s.Ctrl.Index)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	return s.Client.Version(), ClientProtocolVersion, body, nil
+}
+
 func (s *Session) Status() Status {
 	modes := make([]string, 0, len(s.Ctrl.Modes))
 	for _, m := range s.Ctrl.Modes {

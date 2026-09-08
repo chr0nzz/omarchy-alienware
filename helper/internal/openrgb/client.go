@@ -199,6 +199,17 @@ func (c *Client) Controller(index int) (Controller, error) {
 	return ctrl, nil
 }
 
+func (c *Client) ControllerRaw(index int) ([]byte, error) {
+	var payload []byte
+	if c.version > 0 {
+		payload = binaryU32(c.version)
+	}
+	if err := c.send(uint32(index), PktRequestControllerData, payload); err != nil {
+		return nil, err
+	}
+	return c.await(PktRequestControllerData, time.Now().Add(ioTimeout))
+}
+
 func (c *Client) SetClientName(name string) error {
 	return c.send(0, PktSetClientName, append([]byte(name), 0))
 }

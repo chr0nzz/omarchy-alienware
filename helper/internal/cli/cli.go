@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -37,6 +38,7 @@ const Usage = `alienwarectl <verb> [args]
   rgb brightness <0-100>         set the active mode brightness
   rgb identify <zone>            blink one zone red
   rgb off                        blank every LED
+  rgb raw                        dump the raw controller blob for debugging
   reset-fans                     write boost 0 straight to sysfs
   version                        print the binary version
 `
@@ -359,6 +361,18 @@ func runRGB(env Env, args []string) int {
 			Zone openrgb.StatusZone `json:"zone"`
 		}{true, zone})
 
+	case "raw":
+		serverVersion, clientVersion, body, err := session.Raw()
+		if err != nil {
+			return emitError(env.Stdout, err)
+		}
+		return emitOK(env.Stdout, struct {
+			OK            bool   `json:"ok"`
+			ServerVersion uint32 `json:"serverVersion"`
+			ClientVersion uint32 `json:"clientVersion"`
+			Bytes         int    `json:"bytes"`
+			Hex           string `json:"hex"`
+		}{true, serverVersion, clientVersion, len(body), hex.EncodeToString(body)})
 	case "off":
 		if err := session.Off(); err != nil {
 			return emitError(env.Stdout, err)
