@@ -702,10 +702,42 @@ function normalizeRgbStatus(raw) {
       zoneCount: Math.max(0, count),
       ledCount: toInt(dev.ledCount, 0),
       activeMode: String(dev.activeMode || ""),
-      modes: modeList({ device: dev })
+      modes: modeList({ device: dev }),
+      colorModes: stringList(dev.colorModes)
     },
     zones: zones
   }
+}
+
+function stringList(value) {
+  var list = toList(value)
+  var out = []
+  for (var i = 0; i < list.length; i++) {
+    var name = String(list[i] === undefined || list[i] === null ? "" : list[i]).trim()
+    if (name) out.push(name)
+  }
+  return out
+}
+
+function modeTakesColor(mode, colorModes) {
+  var want = String(mode || "").trim()
+  if (!want) return false
+  var list = stringList(colorModes)
+  for (var i = 0; i < list.length; i++) if (list[i] === want) return true
+  return false
+}
+
+function restoreSequence(state) {
+  var out = []
+  if (!isObject(state) || state.lightsOn !== true) return out
+  var mode = String(state.mode || "").trim()
+  var hex = normalizeHex(state.color)
+  if (mode) out.push({ argv: cmdRgbMode(mode), label: "Effect " + mode })
+  out.push({ argv: cmdRgbBrightness(state.brightness), label: "Brightness" })
+  if (hex && modeTakesColor(mode, state.colorModes)) {
+    out.push({ argv: cmdRgbSetAll(hex), label: "Colour" })
+  }
+  return out
 }
 
 function slotLabel(index) {

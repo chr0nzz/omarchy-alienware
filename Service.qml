@@ -266,9 +266,9 @@ Item {
         root.rgbLoaded = true
         if (!root.mode) root.mode = root.rgb.device.activeMode
         root.pruneZones()
-        if (!root.lightsRestored && root.stateLoaded && root.rgb.device.zoneCount > 0) {
+        if (!root.lightsRestored && root.stateLoaded) {
           root.lightsRestored = true
-          root.restoreSavedLights()
+          if (root.rgb.device.zoneCount > 0) root.restoreSavedLights()
         }
       } else {
         root.rgbError = result.error
@@ -279,9 +279,9 @@ Item {
 
   Timer {
     id: rgbRestoreRetry
-    interval: 3000
+    interval: root.rgbRestoreTries < 5 ? 3000 : 30000
     repeat: true
-    running: root.stateLoaded && !root.lightsRestored && root.rgbRestoreTries < 10
+    running: root.stateLoaded && !root.lightsRestored && root.rgbRestoreTries < 30
     onTriggered: {
       root.rgbRestoreTries++
       root.refreshRgb()
@@ -544,10 +544,15 @@ Item {
   }
 
   function restoreSavedLights() {
-    if (!lightsOn) return false
-    enqueue(Model.cmdRgbBrightness(brightness), "Brightness")
-    if (color) enqueue(Model.cmdRgbSetAll(color), "Colour")
-    if (mode) enqueue(Model.cmdRgbMode(mode), "Effect " + mode)
+    var steps = Model.restoreSequence({
+      lightsOn: lightsOn,
+      mode: mode,
+      color: color,
+      brightness: brightness,
+      colorModes: rgb.device.colorModes
+    })
+    if (!steps.length) return false
+    for (var i = 0; i < steps.length; i++) enqueue(steps[i].argv, steps[i].label)
     return true
   }
 

@@ -868,3 +868,56 @@ test("isKnownPreset rejects anything that is not a shipped preset", function() {
   assert.equal(Model.isKnownPreset(""), false)
   assert.equal(Model.isKnownPreset(null), false)
 })
+
+test("restore applies the mode before the colour so the colour is not discarded", function() {
+  var steps = Model.restoreSequence({
+    lightsOn: true, mode: "Static", color: "FF0044", brightness: 60,
+    colorModes: ["Static", "Breathing"]
+  })
+  var verbs = steps.map(function(s) { return s.argv.slice(1).join(" ") })
+  assert.deepEqual(verbs, ["rgb mode Static", "rgb brightness 60", "rgb set-all FF0044"])
+})
+
+test("restore skips the colour for a mode that cannot show one", function() {
+  var steps = Model.restoreSequence({
+    lightsOn: true, mode: "Rainbow Wave", color: "FF0044", brightness: 60,
+    colorModes: ["Static", "Breathing"]
+  })
+  var verbs = steps.map(function(s) { return s.argv.slice(1).join(" ") })
+  assert.deepEqual(verbs, ["rgb mode Rainbow Wave", "rgb brightness 60"])
+})
+
+test("restore skips the colour when the helper reports no colour modes", function() {
+  var steps = Model.restoreSequence({
+    lightsOn: true, mode: "Static", color: "FF0044", brightness: 60, colorModes: []
+  })
+  var verbs = steps.map(function(s) { return s.argv.slice(1).join(" ") })
+  assert.deepEqual(verbs, ["rgb mode Static", "rgb brightness 60"])
+})
+
+test("restore does nothing when the lights are off", function() {
+  assert.deepEqual(Model.restoreSequence({
+    lightsOn: false, mode: "Static", color: "FF0044", brightness: 60, colorModes: ["Static"]
+  }), [])
+})
+
+test("restore tolerates a missing state object", function() {
+  assert.deepEqual(Model.restoreSequence(null), [])
+  assert.deepEqual(Model.restoreSequence({}), [])
+})
+
+test("modeTakesColor matches only the reported colour modes", function() {
+  assert.equal(Model.modeTakesColor("Static", ["Static", "Breathing"]), true)
+  assert.equal(Model.modeTakesColor("Morph", ["Static", "Breathing"]), false)
+  assert.equal(Model.modeTakesColor("", ["Static"]), false)
+  assert.equal(Model.modeTakesColor("Static", null), false)
+})
+
+test("normalizeRgbStatus carries colorModes through", function() {
+  var r = Model.normalizeRgbStatus({
+    ok: true, connected: true,
+    device: { zoneCount: 0, modes: ["Static", "Rainbow Wave"], colorModes: ["Static"] },
+    zones: []
+  })
+  assert.deepEqual(r.device.colorModes, ["Static"])
+})

@@ -389,3 +389,30 @@ func TestDialRefusedMapsToNoOpenRGB(t *testing.T) {
 		t.Fatalf("code: got %q, want %q", oerr.Code(), CodeNoOpenRGB)
 	}
 }
+
+func TestStatusReportsOnlyPerLEDModesAsColorModes(t *testing.T) {
+	s := &Session{
+		Client: &Client{addr: "127.0.0.1:6742"},
+		Ctrl: Controller{
+			ActiveMode: 0,
+			Modes: []Mode{
+				{Name: "Static", Flags: ModeFlagHasPerLEDColor},
+				{Name: "Rainbow Wave", Flags: 0},
+				{Name: "Breathing", Flags: ModeFlagHasPerLEDColor},
+			},
+		},
+	}
+	got := s.Status()
+	if len(got.Device.Modes) != 3 {
+		t.Fatalf("want every mode listed, got %v", got.Device.Modes)
+	}
+	want := []string{"Static", "Breathing"}
+	if len(got.Device.ColorModes) != len(want) {
+		t.Fatalf("want %v as colour modes, got %v", want, got.Device.ColorModes)
+	}
+	for i, name := range want {
+		if got.Device.ColorModes[i] != name {
+			t.Fatalf("colour mode %d: want %q, got %q", i, name, got.Device.ColorModes[i])
+		}
+	}
+}

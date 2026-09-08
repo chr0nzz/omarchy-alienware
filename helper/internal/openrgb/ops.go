@@ -23,6 +23,7 @@ type StatusDevice struct {
 	LEDCount   int      `json:"ledCount"`
 	ActiveMode string   `json:"activeMode"`
 	Modes      []string `json:"modes"`
+	ColorModes []string `json:"colorModes"`
 }
 
 type Status struct {
@@ -91,8 +92,12 @@ func (s *Session) Raw() (uint32, uint32, []byte, error) {
 
 func (s *Session) Status() Status {
 	modes := make([]string, 0, len(s.Ctrl.Modes))
+	colorModes := make([]string, 0, len(s.Ctrl.Modes))
 	for _, m := range s.Ctrl.Modes {
 		modes = append(modes, m.Name)
+		if m.Flags&ModeFlagHasPerLEDColor != 0 {
+			colorModes = append(colorModes, m.Name)
+		}
 	}
 	active := ""
 	if s.Ctrl.ActiveMode >= 0 && int(s.Ctrl.ActiveMode) < len(s.Ctrl.Modes) {
@@ -113,6 +118,7 @@ func (s *Session) Status() Status {
 			LEDCount:   len(s.Ctrl.LEDs),
 			ActiveMode: active,
 			Modes:      modes,
+			ColorModes: colorModes,
 		},
 		Zones: zones,
 	}
