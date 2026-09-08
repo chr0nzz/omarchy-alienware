@@ -38,6 +38,9 @@ jobs:
           fi
       - run: go vet ./...
       - run: go build ./...
+      - name: Build the binary the release ships
+        run: go build -o /tmp/alienwarectl ./cmd/alienwarectl
+      - run: /tmp/alienwarectl version
       - run: go test -race ./...
 
   packaging:
