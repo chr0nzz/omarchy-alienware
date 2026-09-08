@@ -65,7 +65,6 @@ jobs:
           mkdir -p "$dir"
           cp alienwarectl README.md LICENSE "$dir/"
           cp -r packaging "$dir/packaging"
-          cp scripts/rgb-sweep.sh "$dir/"
           tar -czf "${dir}.tar.gz" "$dir"
           sha256sum "${dir}.tar.gz" alienwarectl > sha256sums.txt
           cat sha256sums.txt
