@@ -44,14 +44,6 @@ BarWidget {
     return parts.join("\n")
   }
 
-  readonly property string themeHex: Model.colorToHex(String(Color.accent))
-
-  function pushTheme() {
-    if (root.service && "themeHex" in root.service) root.service.themeHex = root.themeHex
-  }
-
-  onThemeHexChanged: pushTheme()
-
   function injectPanel() {
     var target = panelLoader.item
     if (!target) return
@@ -87,7 +79,7 @@ BarWidget {
 
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
-  onServiceChanged: { injectPanel(); pushTheme() }
+  onServiceChanged: injectPanel()
 
   Loader {
     id: panelLoader
@@ -95,7 +87,6 @@ BarWidget {
     source: Qt.resolvedUrl("Panel.qml")
     visible: false
     onLoaded: {
-      root.pushTheme()
       root.injectPanel()
       Qt.callLater(root.injectPanel)
     }

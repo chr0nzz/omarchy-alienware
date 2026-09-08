@@ -115,7 +115,7 @@ Panel {
   property string dDisplay: "temp"
   property bool dThemeRgb: false
 
-  readonly property string heroGlyph: "󰈐"
+  readonly property string heroGlyph: "󰢚"
 
   readonly property var statusParts: {
     var parts = []
