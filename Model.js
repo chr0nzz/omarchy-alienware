@@ -652,6 +652,87 @@ function hexPreview(value) {
   return hex ? "#" + hex : ""
 }
 
+var THEME_SWATCH_NAMES = ["accent", "red", "orange", "yellow", "green", "cyan", "blue", "purple"]
+
+function capitalizeLabel(name) {
+  var s = String(name || "")
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : ""
+}
+
+function hexToHsv(value) {
+  var rgb = hexToRgb(value)
+  if (!rgb) return null
+  var r = rgb.r / 255
+  var g = rgb.g / 255
+  var b = rgb.b / 255
+  var max = Math.max(r, g, b)
+  var min = Math.min(r, g, b)
+  var delta = max - min
+  var h = 0
+  if (delta > 0) {
+    if (max === r) h = 60 * (((g - b) / delta) % 6)
+    else if (max === g) h = 60 * ((b - r) / delta + 2)
+    else h = 60 * ((r - g) / delta + 4)
+    if (h < 0) h += 360
+  }
+  var s = max > 0 ? delta / max * 100 : 0
+  var v = max * 100
+  return { h: h, s: s, v: v }
+}
+
+function hsvToHex(h, s, v) {
+  var hh = ((toNumber(h, 0) % 360) + 360) % 360
+  var ss = clamp(toNumber(s, 0), 0, 100) / 100
+  var vv = clamp(toNumber(v, 0), 0, 100) / 100
+  var c = vv * ss
+  var x = c * (1 - Math.abs((hh / 60) % 2 - 1))
+  var m = vv - c
+  var r = 0
+  var g = 0
+  var b = 0
+  if (hh < 60) { r = c; g = x; b = 0 }
+  else if (hh < 120) { r = x; g = c; b = 0 }
+  else if (hh < 180) { r = 0; g = c; b = x }
+  else if (hh < 240) { r = 0; g = x; b = c }
+  else if (hh < 300) { r = x; g = 0; b = c }
+  else { r = c; g = 0; b = x }
+  var toByte = function(channel) { return clampInt(Math.round((channel + m) * 255), 0, 255, 0) }
+  var toHexPart = function(n) { return ("0" + n.toString(16)).slice(-2) }
+  return (toHexPart(toByte(r)) + toHexPart(toByte(g)) + toHexPart(toByte(b))).toUpperCase()
+}
+
+function parseThemePalette(text) {
+  var lines = String(text === undefined || text === null ? "" : text).split("\n")
+  var map = {}
+  var order = []
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].replace(/\r$/, "")
+    if (!line.trim()) continue
+    var parts = line.split("\t")
+    if (parts.length !== 2) continue
+    var name = parts[0].trim()
+    var hexValue = parts[1].trim()
+    if (!name || !/^#[0-9a-fA-F]{6}$/.test(hexValue)) continue
+    if (!(name in map)) order.push(name)
+    map[name] = normalizeHex(hexValue)
+  }
+  return { map: map, order: order }
+}
+
+function themeSwatches(text) {
+  var parsed = parseThemePalette(text)
+  var out = []
+  var seenHex = {}
+  for (var i = 0; i < THEME_SWATCH_NAMES.length; i++) {
+    var name = THEME_SWATCH_NAMES[i]
+    var hex = parsed.map[name]
+    if (!hex || seenHex[hex]) continue
+    seenHex[hex] = true
+    out.push({ id: name, label: capitalizeLabel(name), hex: hex })
+  }
+  return out
+}
+
 function regionIds() {
   var out = []
   for (var i = 0; i < REGIONS.length; i++) out.push(REGIONS[i].id)

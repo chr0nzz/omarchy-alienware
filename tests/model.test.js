@@ -827,3 +827,95 @@ test("restore tolerates a missing state object", function() {
   assert.deepEqual(Model.restoreSequence(null), [])
   assert.deepEqual(Model.restoreSequence({}), [])
 })
+
+test("hexToHsv reads the primary and secondary colours", () => {
+  assert.deepEqual(Model.hexToHsv("#FF0000"), { h: 0, s: 100, v: 100 })
+  assert.deepEqual(Model.hexToHsv("#00FF00"), { h: 120, s: 100, v: 100 })
+  assert.deepEqual(Model.hexToHsv("#0000FF"), { h: 240, s: 100, v: 100 })
+  assert.deepEqual(Model.hexToHsv("#FFFFFF"), { h: 0, s: 0, v: 100 })
+  assert.deepEqual(Model.hexToHsv("#000000"), { h: 0, s: 0, v: 0 })
+  assert.equal(Model.hexToHsv("nope"), null)
+  assert.equal(Model.hexToHsv(""), null)
+})
+
+test("hsvToHex builds the primary and secondary colours", () => {
+  assert.equal(Model.hsvToHex(0, 100, 100), "FF0000")
+  assert.equal(Model.hsvToHex(120, 100, 100), "00FF00")
+  assert.equal(Model.hsvToHex(240, 100, 100), "0000FF")
+  assert.equal(Model.hsvToHex(0, 0, 100), "FFFFFF")
+  assert.equal(Model.hsvToHex(0, 0, 0), "000000")
+})
+
+test("hsvToHex wraps hue and clamps saturation and value", () => {
+  assert.equal(Model.hsvToHex(360, 100, 100), Model.hsvToHex(0, 100, 100))
+  assert.equal(Model.hsvToHex(-120, 100, 100), Model.hsvToHex(240, 100, 100))
+  assert.equal(Model.hsvToHex(0, 150, 200), Model.hsvToHex(0, 100, 100))
+  assert.equal(Model.hsvToHex(0, -50, -50), Model.hsvToHex(0, 0, 0))
+})
+
+test("hex to hsv to hex round trips for a spread of colours", () => {
+  var samples = [
+    "FF0000", "00FF00", "0000FF", "FFFF00", "00FFFF", "FF00FF",
+    "FFFFFF", "000000", "808080", "336699", "1A2B3C", "FEDCBA",
+    "8899AA", "AABBCC", "123456", "654321", "0F0F0F", "F0F0F0",
+    "7CFC00", "4682B4", "D2691E", "9932CC", "2E8B57", "6E6E6E"
+  ]
+  for (var i = 0; i < samples.length; i++) {
+    var hex = samples[i]
+    var hsv = Model.hexToHsv(hex)
+    assert.equal(Model.hsvToHex(hsv.h, hsv.s, hsv.v), hex, hex)
+  }
+})
+
+test("parseThemePalette keeps only well formed name and hex pairs", () => {
+  var text = [
+    "accent\t#6e6e6e",
+    "",
+    "mode\tlight",
+    "no tab here",
+    "red\t#2a2a2a\textra",
+    "blue\tnot-a-colour",
+    "green\t#3a3a3a\r",
+    "green\t#00ff00"
+  ].join("\n")
+  var parsed = Model.parseThemePalette(text)
+  assert.deepEqual(parsed.map, { accent: "6E6E6E", green: "00FF00" })
+  assert.deepEqual(parsed.order, ["accent", "green"])
+})
+
+test("parseThemePalette survives empty and junk input", () => {
+  assert.deepEqual(Model.parseThemePalette(""), { map: {}, order: [] })
+  assert.deepEqual(Model.parseThemePalette(null), { map: {}, order: [] })
+  assert.deepEqual(Model.parseThemePalette("just\tnoise\there"), { map: {}, order: [] })
+})
+
+test("themeSwatches picks the named hues and the accent in order", () => {
+  var text = [
+    "accent\t#6e6e6e",
+    "background\t#ffffff",
+    "bg\t#ffffff",
+    "red\t#2a2a2a",
+    "bright_red\t#2a2a2a",
+    "orange\t#4a4a4a",
+    "yellow\t#4a4a4a",
+    "green\t#3a3a3a",
+    "cyan\t#3e3e3e",
+    "blue\t#1a1a1a",
+    "purple\t#2e2e2e",
+    "bright_purple\t#2e2e2e",
+    "bright_magenta\t#2e2e2e",
+    "mode\tlight"
+  ].join("\n")
+  var swatches = Model.themeSwatches(text)
+  assert.deepEqual(swatches.map((s) => s.id), ["accent", "red", "orange", "green", "cyan", "blue", "purple"])
+  assert.deepEqual(swatches.map((s) => s.hex), ["6E6E6E", "2A2A2A", "4A4A4A", "3A3A3A", "3E3E3E", "1A1A1A", "2E2E2E"])
+  assert.equal(swatches[0].label, "Accent")
+  assert.equal(swatches.find((s) => s.id === "yellow"), undefined)
+})
+
+test("themeSwatches skips names the palette does not define and survives empty input", () => {
+  var swatches = Model.themeSwatches("accent\t#6e6e6e\nred\t#2a2a2a")
+  assert.deepEqual(swatches.map((s) => s.id), ["accent", "red"])
+  assert.deepEqual(Model.themeSwatches(""), [])
+  assert.deepEqual(Model.themeSwatches("garbage"), [])
+})

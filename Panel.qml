@@ -908,6 +908,16 @@ Panel {
             }
           }
 
+          ColorPicker {
+            width: parent.width
+            hex: colorField.text
+            swatches: root.service ? root.service.themeSwatches : []
+            fg: root.fg
+            accent: root.accent
+            fontFamily: root.fontFamily
+            onPicked: function(nextHex) { colorField.text = nextHex }
+          }
+
           Button {
             text: "Use the theme colour"
             iconText: "󰏘"

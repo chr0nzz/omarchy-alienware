@@ -109,6 +109,8 @@ Item {
   property bool actionError: false
 
   property string themeHex: ""
+  property string themePaletteText: ""
+  readonly property var themeSwatches: Model.themeSwatches(themePaletteText)
 
   signal statusUpdated()
   signal actionFinished(bool ok, string text)
@@ -150,6 +152,7 @@ Item {
       stateLoaded = true
       poll()
       refreshRgb()
+      refreshThemePalette()
     }
   }
 
@@ -266,6 +269,20 @@ Item {
         root.rgbError = result.error
         root.rgbLoaded = true
       }
+    }
+  }
+
+  function refreshThemePalette() {
+    if (themePaletteProc.running) return
+    themePaletteProc.running = true
+  }
+
+  Process {
+    id: themePaletteProc
+    command: ["omarchy", "theme", "color", "--all"]
+    stdout: StdioCollector { id: themePaletteOut; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.themePaletteText = themePaletteOut.text
     }
   }
 
@@ -572,7 +589,10 @@ Item {
     return true
   }
 
-  onThemeHexChanged: if (stateLoaded && themeSync) themeApply.restart()
+  onThemeHexChanged: {
+    if (stateLoaded) refreshThemePalette()
+    if (stateLoaded && themeSync) themeApply.restart()
+  }
 
   Timer {
     id: themeApply
@@ -584,6 +604,7 @@ Item {
     lastResult = null
     poll()
     refreshRgb()
+    refreshThemePalette()
   }
 
   function summon() {
@@ -670,5 +691,6 @@ Item {
     statusProc.running = false
     rgbProc.running = false
     writeProc.running = false
+    themePaletteProc.running = false
   }
 }
