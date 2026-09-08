@@ -2,7 +2,7 @@
 
 An Omarchy 4 shell plugin for fans, lighting and power on the Alienware x15 R2.
 
-Plugin id `xyzlab.alienware`. Two parts: a Quickshell plugin that runs as your user, and
+Plugin id `xyzlab.alienware`. Two parts: a Quickshell plugin that runs unprivileged, and
 `alienwarectl`, a Go binary that is both a root D-Bus daemon and a user-side CLI.
 
 ## What works on this hardware
@@ -18,7 +18,7 @@ Plugin id `xyzlab.alienware`. Two parts: a Quickshell plugin that runs as your u
 | PL1 / PL2 / peak | `intel-rapl:0` | Write if firmware permits |
 | Fan boost | `fanN_boost` | Write, additive only |
 | Chassis RGB | AlienFX ELC over `/dev/hidraw0` | Write, no root |
-| Keyboard RGB | Darfon controller | Not supported yet |
+| Keyboard RGB | Darfon controller `0d62:babc` | In progress, see below |
 | Battery charge limit | none | Absent on this model |
 | GPU MUX / dynamic boost | none | Absent on this model |
 
@@ -52,17 +52,17 @@ Sysfs control nodes are root-owned, so fan, thermal, turbo and power writes go t
 on the D-Bus system bus, gated by polkit. The plugin reads sysfs directly because it is
 world-readable.
 
-RGB is outside that boundary. A udev rule tags the AW-ELC HID node `uaccess`, which gives your
-logged-in session an ACL on it, so lighting is driven directly over `/dev/hidraw0` as you and
-never touches the daemon. No setuid binaries, no root shell. Check it before reporting an RGB
+RGB is outside that boundary. A udev rule tags the AW-ELC HID node `uaccess`, which gives the
+logged-in session an ACL on it, so lighting is driven directly over `/dev/hidraw0` unprivileged
+and never touches the daemon. No setuid binaries, no root shell. Check it before reporting an RGB
 fault:
 
 ```
 getfacl /dev/hidraw0 | grep "$USER"
 ```
 
-If your user has no entry there, the udev rule is missing or does not match this controller, and
-every RGB command will fail.
+If the logged-in user has no entry there, the udev rule is missing or does not match this
+controller, and every RGB command will fail.
 
 **The AW-ELC controller (187c:0550) wedges if two processes open its HID node at once.** The
 symptom is a status report that reads back all zero. `alienwarectl` detects that on session open,
@@ -77,8 +77,8 @@ writes but the LEDs stay frozen on an old frame. That one cannot be detected fro
 power-profiles-daemon exposes three of the six profiles and re-applies its own choice on resume
 and on AC changes.
 
-This plugin treats sysfs as authoritative, leaves the daemon running, and re-asserts your profile
-after resume. If you still see profiles reverting, mask it:
+This plugin treats sysfs as authoritative, leaves the daemon running, and re-asserts the selected
+profile after resume. If profiles still revert, mask it:
 
 ```
 systemctl mask power-profiles-daemon
@@ -177,5 +177,27 @@ cd helper && go test ./...
 
 ## Status
 
-Built against verified interface readings from the target machine. The QML has not been run, and
-no code here has been exercised against the Alienware hardware itself.
+Chassis lighting, fans, thermal profiles, turbo and power limits are verified working on an
+Alienware x15 R2. The region map was established by lighting hardware zone ids one at a time and
+recording which part of the machine responded, so it reflects this hardware rather than a vendor
+table.
+
+Verified on hardware:
+
+- All four chassis regions address independently
+- `rgb set-map` writes several regions in one transaction and leaves unnamed regions untouched
+- Theme sync follows the active Omarchy theme
+- The colour picker offers theme swatches and HSV sliders, applied on demand rather than on drag
+
+In progress:
+
+- **Keyboard lighting.** The keyboard is a separate Darfon controller speaking AlienFX APIv5. It
+  exposes a single hidraw node which is the keyboard input interface, so it will stay root-only:
+  granting the session an ACL there would let any process running as that user read keystrokes.
+  Lighting will be driven through the existing root daemon over D-Bus, gated by a polkit action,
+  in the same pattern as the fan and profile controls.
+
+Not implemented:
+
+- Lighting effects. `rgb mode` is recognised and always answers `not-supported`.
+- Per-LED addressing inside a ring half. The hardware supports it, the CLI does not expose it.
