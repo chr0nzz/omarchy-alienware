@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "xyzlab.alienware",
   "name": "Alienware",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "xyzlab",
   "license": "MIT",
   "description": "Alienware Command Center replacement for the Omarchy bar. Fan readouts and an additive boost curve, thermal profiles, turbo and power limits, and keyboard RGB with a first run zone wizard. All hardware access goes through the alienwarectl helper.",
