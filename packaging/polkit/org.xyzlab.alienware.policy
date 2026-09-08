@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>omarchy-alienware</vendor>
+  <vendor_url>https://github.com/chr0nzz/omarchy-alienware</vendor_url>
+
+  <action id="org.xyzlab.alienware.set-profile">
+    <description>Change the platform profile</description>
+    <message>Authentication is required to change the platform profile</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <action id="org.xyzlab.alienware.set-fan">
+    <description>Change fan boost and fan curves</description>
+    <message>Authentication is required to change the fans</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <action id="org.xyzlab.alienware.set-power">
+    <description>Change turbo and power limits</description>
+    <message>Authentication is required to change the power settings</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

@@ -1,0 +1,37 @@
+name: Feature request
+description: Something Alienware Control should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you cannot do today, or what is awkward
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What it should do. Include the setting, key, CLI verb, or IPC command if you have one in mind
+    validations:
+      required: true
+  - type: textarea
+    id: interface
+    attributes:
+      label: Interface it needs
+      description: The sysfs path, hwmon attribute, D-Bus method, or OpenRGB call this would read or write, if you know it
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways you considered, including scripts around alienwarectl
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This works on an Alienware x15 R2, not only on another model
+        - label: This needs no new runtime dependency
+        - label: This does not need a new privileged operation
+        - label: I am willing to open a pull request for this

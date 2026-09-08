@@ -1,0 +1,7 @@
+*.bak
+.DS_Store
+node_modules/
+alienwarectl
+packaging/src/
+packaging/pkg/
+packaging/*.pkg.tar.zst

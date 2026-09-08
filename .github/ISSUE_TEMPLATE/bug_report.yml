@@ -1,0 +1,109 @@
+name: Bug report
+description: Something in Alienware Control does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. alienwarectl profile performance
+        2. Open the panel, Fans tab
+        3. Apply the quiet curve
+    validations:
+      required: true
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin version
+      description: version in manifest.json, or the commit hash
+    validations:
+      required: true
+  - type: input
+    id: helper
+    attributes:
+      label: Helper version
+      placeholder: alienwarectl version
+    validations:
+      required: true
+  - type: input
+    id: omarchy
+    attributes:
+      label: Omarchy version
+      placeholder: omarchy version
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Laptop model
+      description: Everything here is built for the Alienware x15 R2
+      placeholder: cat /sys/class/dmi/id/product_name
+    validations:
+      required: true
+  - type: input
+    id: kernel
+    attributes:
+      label: Kernel version
+      placeholder: uname -r
+    validations:
+      required: true
+  - type: dropdown
+    id: daemon
+    attributes:
+      label: Is alienwarectl.service running
+      description: systemctl is-active alienwarectl.service
+      options:
+        - active
+        - inactive
+        - failed
+        - not installed
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Fans and curves
+        - Thermal profiles
+        - Turbo and power limits
+        - RGB
+        - Bar widget or panel
+        - CLI or IPC
+        - Install and packaging
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of alienwarectl status
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: journal
+    attributes:
+      label: Daemon log
+      description: Output of journalctl -u alienwarectl -n 100 around the time of the bug
+      render: shell
+  - type: textarea
+    id: logs
+    attributes:
+      label: Shell log
+      description: Output of quickshell log -i <instance> -t 100 around the time of the bug
+      render: shell
+  - type: checkboxes
+    id: rgb
+    attributes:
+      label: For RGB faults
+      options:
+        - label: getfacl /dev/hidraw0 shows an entry for my user
+        - label: openrgb-server.service is running and bound to 127.0.0.1

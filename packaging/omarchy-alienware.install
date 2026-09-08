@@ -1,0 +1,26 @@
+post_install() {
+  cat <<'MSG'
+The alienwarectl helper is installed. Two steps remain.
+
+  systemctl enable --now alienwarectl.service
+  systemctl --user enable --now openrgb-server.service
+
+The bar plugin is installed separately through Omarchy, which clones it as a
+real directory. A symlink will not work, the shell's watcher does not follow one.
+
+  omarchy plugin add https://github.com/chr0nzz/omarchy-alienware.git --enable
+MSG
+}
+
+post_upgrade() {
+  systemctl daemon-reload
+  cat <<'MSG'
+Restart the helper to pick up the new binary.
+
+  systemctl restart alienwarectl.service
+MSG
+}
+
+pre_remove() {
+  systemctl disable --now alienwarectl.service >/dev/null 2>&1 || true
+}

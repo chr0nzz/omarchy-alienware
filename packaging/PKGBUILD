@@ -1,0 +1,65 @@
+pkgname=omarchy-alienware
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Alienware fan, thermal, power and RGB control for Omarchy'
+arch=('x86_64')
+url='https://github.com/chr0nzz/omarchy-alienware'
+license=('MIT')
+depends=('dbus' 'polkit')
+makedepends=('go' 'git')
+optdepends=(
+  'openrgb: keyboard and logo RGB control through the SDK server'
+  'nvidia-utils: GPU power telemetry through nvidia-smi'
+  'quickshell: runs the Omarchy bar widget and panel'
+)
+backup=()
+options=('!lto')
+source=("git+${url}.git#tag=v${pkgver}")
+sha256sums=('SKIP')
+
+install=omarchy-alienware.install
+
+prepare() {
+  cd "${srcdir}/${pkgname}/helper"
+  export GOPATH="${srcdir}/gopath"
+  go mod download
+}
+
+build() {
+  cd "${srcdir}/${pkgname}/helper"
+  export GOPATH="${srcdir}/gopath"
+  export CGO_ENABLED=0
+  export GOFLAGS="-trimpath -mod=readonly -modcacherw"
+  go build -ldflags "-s -w -X github.com/chr0nzz/omarchy-alienware/helper/internal/cli.Version=${pkgver}" \
+    -o "${srcdir}/alienwarectl" ./cmd/alienwarectl
+}
+
+check() {
+  cd "${srcdir}/${pkgname}/helper"
+  export GOPATH="${srcdir}/gopath"
+  go test ./...
+}
+
+package() {
+  cd "${srcdir}/${pkgname}"
+
+  install -Dm755 "${srcdir}/alienwarectl" "${pkgdir}/usr/bin/alienwarectl"
+  install -Dm755 scripts/rgb-sweep.sh "${pkgdir}/usr/bin/alienware-rgb-sweep"
+
+  install -Dm644 packaging/systemd/alienwarectl.service \
+    "${pkgdir}/usr/lib/systemd/system/alienwarectl.service"
+  install -Dm644 packaging/systemd/openrgb-server.service \
+    "${pkgdir}/usr/lib/systemd/user/openrgb-server.service"
+
+  install -Dm644 packaging/dbus/org.xyzlab.Alienware1.conf \
+    "${pkgdir}/usr/share/dbus-1/system.d/org.xyzlab.Alienware1.conf"
+  install -Dm644 packaging/dbus/org.xyzlab.Alienware1.service \
+    "${pkgdir}/usr/share/dbus-1/system-services/org.xyzlab.Alienware1.service"
+
+  install -Dm644 packaging/polkit/org.xyzlab.alienware.policy \
+    "${pkgdir}/usr/share/polkit-1/actions/org.xyzlab.alienware.policy"
+  install -Dm644 packaging/polkit/49-alienware.rules \
+    "${pkgdir}/usr/share/polkit-1/rules.d/49-alienware.rules"
+
+  install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+}

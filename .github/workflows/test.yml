@@ -1,0 +1,85 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  model:
+    name: Model tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  helper:
+    name: Helper tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: helper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: helper/go.mod
+          cache-dependency-path: helper/go.sum
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "these files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test -race ./...
+
+  packaging:
+    name: Packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck scripts/rgb-sweep.sh
+      - name: shell syntax
+        run: |
+          bash -n packaging/PKGBUILD
+          bash -n packaging/omarchy-alienware.install
+      - name: xml
+        run: |
+          python3 - <<'PY'
+          import xml.dom.minidom
+          for path in (
+              "packaging/dbus/org.xyzlab.Alienware1.conf",
+              "packaging/polkit/org.xyzlab.alienware.policy",
+          ):
+              xml.dom.minidom.parse(path)
+              print("parsed", path)
+          PY
+      - name: manifest
+        run: node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8'))"
+
+  style:
+    name: House rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: no em dashes
+        run: |
+          dash=$(printf '\u2014')
+          if grep -rn "$dash" . --exclude-dir=.git; then
+            echo "em dash found, use a hyphen"
+            exit 1
+          fi
+      - name: no code comments
+        run: |
+          if grep -rnE '^[[:space:]]*(//|/\*)' --include='*.qml' --include='*.js' --include='*.go' . ; then
+            echo "code comments found"
+            exit 1
+          fi

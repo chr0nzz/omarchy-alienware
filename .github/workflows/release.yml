@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: helper/go.mod
+          cache-dependency-path: helper/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify before releasing
+        run: |
+          npm test
+          cd helper
+          gofmt -l . | tee /tmp/unformatted
+          test ! -s /tmp/unformatted
+          go vet ./...
+          go test -race ./...
+
+      - name: Resolve version
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build alienwarectl
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          cd helper
+          go build \
+            -trimpath \
+            -ldflags "-s -w -X github.com/chr0nzz/omarchy-alienware/helper/internal/cli.Version=${{ steps.version.outputs.value }}" \
+            -o "${GITHUB_WORKSPACE}/alienwarectl" \
+            ./cmd/alienwarectl
+
+      - name: Check the binary is static and reports its version
+        run: |
+          file alienwarectl
+          if ldd alienwarectl 2>&1 | grep -qv "not a dynamic executable"; then
+            echo "binary is dynamically linked, it must be static"
+            exit 1
+          fi
+          ./alienwarectl version
+
+      - name: Package
+        run: |
+          version="${{ steps.version.outputs.value }}"
+          dir="alienwarectl-${version}-x86_64"
+          mkdir -p "$dir"
+          cp alienwarectl README.md LICENSE "$dir/"
+          cp -r packaging "$dir/packaging"
+          cp scripts/rgb-sweep.sh "$dir/"
+          tar -czf "${dir}.tar.gz" "$dir"
+          sha256sum "${dir}.tar.gz" alienwarectl > sha256sums.txt
+          cat sha256sums.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ steps.version.outputs.value }}"
+          notes="release-notes/v${version}.md"
+          if [ -f "$notes" ]; then
+            gh release create "$GITHUB_REF_NAME" \
+              --title "v${version}" \
+              --notes-file "$notes" \
+              alienwarectl "alienwarectl-${version}-x86_64.tar.gz" sha256sums.txt
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "v${version}" \
+              --generate-notes \
+              alienwarectl "alienwarectl-${version}-x86_64.tar.gz" sha256sums.txt
+          fi

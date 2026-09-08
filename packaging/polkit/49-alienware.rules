@@ -1,0 +1,11 @@
+polkit.addRule(function(action, subject) {
+    if (action.id !== "org.xyzlab.alienware.set-profile" &&
+        action.id !== "org.xyzlab.alienware.set-fan" &&
+        action.id !== "org.xyzlab.alienware.set-power") {
+        return undefined;
+    }
+    if (subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.AUTH_ADMIN;
+});

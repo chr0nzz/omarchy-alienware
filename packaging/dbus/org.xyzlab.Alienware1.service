@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=org.xyzlab.Alienware1
+Exec=/usr/bin/alienwarectl daemon
+User=root
+SystemdService=alienwarectl.service

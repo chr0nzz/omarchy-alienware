@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "xyzlab.alienware",
+  "name": "Alienware",
+  "version": "0.1.0",
+  "author": "xyzlab",
+  "license": "MIT",
+  "description": "Alienware Command Center replacement for the Omarchy bar. Fan readouts and an additive boost curve, thermal profiles, turbo and power limits, and keyboard RGB with a first run zone wizard. All hardware access goes through the alienwarectl helper.",
+  "kinds": ["service", "bar-widget"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Alienware",
+    "description": "Fans, thermal profiles, power limits and keyboard RGB in one panel.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "pollInterval": 2,
+      "hotTemp": 90,
+      "display": "temp",
+      "themeRgb": false
+    },
+    "schema": [
+      { "key": "pollInterval", "type": "integer", "label": "Seconds between hardware polls", "min": 1, "max": 30, "step": 1, "defaultValue": 2 },
+      { "key": "hotTemp", "type": "integer", "label": "Temperature that turns the bar widget hot (C)", "min": 50, "max": 110, "step": 1, "defaultValue": 90 },
+      { "key": "display", "type": "string", "label": "Bar widget shows: icon, temp or full", "defaultValue": "temp" },
+      { "key": "themeRgb", "type": "boolean", "label": "Keep the keyboard lights on the active Omarchy theme colour", "defaultValue": false }
+    ]
+  }
+}

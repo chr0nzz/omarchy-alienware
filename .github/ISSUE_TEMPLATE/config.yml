@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/chr0nzz/omarchy-alienware/security/advisories/new
+    about: Report privately, never as a public issue
+  - name: OpenRGB problem
+    url: https://gitlab.com/CalcProgrammer1/OpenRGB/-/issues
+    about: Lighting faults in the SDK server, the udev rules, or zone detection belong to OpenRGB
+  - name: Kernel driver problem
+    url: https://lore.kernel.org/platform-driver-x86/
+    about: Missing or wrong alienware_wmi sysfs attributes belong to the kernel platform drivers list

@@ -1,0 +1,37 @@
+[Unit]
+Description=Alienware fan, profile and power helper
+Documentation=https://github.com/chr0nzz/omarchy-alienware
+After=dbus.service
+Requires=dbus.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/bin/alienwarectl daemon
+ExecStopPost=/usr/bin/alienwarectl reset-fans
+WatchdogSec=10
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+
+User=root
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectKernelTunables=no
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectClock=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
