@@ -201,7 +201,6 @@ Panel {
     }
     var c = constraints[powerCursor]
     if (!Model.powerLimitWritable(c)) return
-    if (c.index !== 0 && c.index !== 1) return
     service.setPowerLimit(c.index + 1, c.watts + direction * 5)
   }
 

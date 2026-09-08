@@ -4,4 +4,6 @@ node_modules/
 /alienwarectl
 packaging/src/
 packaging/pkg/
+packaging/omarchy-alienware/
 packaging/*.pkg.tar.zst
+packaging/*.log

@@ -793,14 +793,13 @@ function powerLimitWritable(constraint) {
   if (!isObject(constraint)) return false
   if (constraint.writable !== true) return false
   var idx = toInt(constraint.index, -1)
-  return idx === 0 || idx === 1
+  return idx >= 0 && idx <= 2
 }
 
 function powerLimitNote(constraint) {
   if (!isObject(constraint)) return ""
   if (constraint.writable !== true) return PL_LOCKED_NOTE
-  if (powerLimitWritable(constraint)) return ""
-  return "no CLI verb addresses this constraint"
+  return ""
 }
 
 function unionZoneMaps(primary, extra) {
@@ -1062,7 +1061,7 @@ function cmdBoost(fan, value) { return ["alienwarectl", "boost", String(fan || "
 function cmdCurveApply() { return ["alienwarectl", "curve", "apply", "-"] }
 function cmdCurveStop() { return ["alienwarectl", "curve", "stop"] }
 function cmdTurbo(on) { return ["alienwarectl", "turbo", on ? "on" : "off"] }
-function cmdPl(index, watts) { return ["alienwarectl", "pl", String(clampInt(index, 1, 2, 1)), String(Math.max(1, toInt(watts, 1)))] }
+function cmdPl(index, watts) { return ["alienwarectl", "pl", String(clampInt(index, 1, 3, 1)), String(Math.max(1, toInt(watts, 1)))] }
 function cmdGpu() { return ["alienwarectl", "gpu"] }
 function cmdRgbStatus() { return ["alienwarectl", "rgb", "status"] }
 function cmdRgbSet(zone, hex) { return ["alienwarectl", "rgb", "set", String(toInt(zone, 0)), normalizeHex(hex)] }

@@ -86,7 +86,7 @@ Helper, from the cloned repo:
 
 ```
 cd ~/.config/omarchy/plugins/xyzlab.alienware/packaging && makepkg -si
-systemctl enable --now alienwarectl.service
+sudo systemctl enable --now alienwarectl.service
 systemctl --user enable --now openrgb-server.service
 ```
 

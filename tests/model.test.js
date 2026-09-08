@@ -842,16 +842,21 @@ test("unionZoneMaps drops unnamed extras and never duplicates an index", functio
   assert.equal(merged[0].name, "Right")
 })
 
-test("only constraints the pl verb can address are writable", function() {
+test("every constraint the pl verb can address is writable", function() {
   assert.equal(Model.powerLimitWritable({ index: 0, writable: true }), true)
   assert.equal(Model.powerLimitWritable({ index: 1, writable: true }), true)
-  assert.equal(Model.powerLimitWritable({ index: 2, writable: true }), false)
+  assert.equal(Model.powerLimitWritable({ index: 2, writable: true }), true)
+  assert.equal(Model.powerLimitWritable({ index: 3, writable: true }), false)
   assert.equal(Model.powerLimitWritable({ index: 0, writable: false }), false)
 })
 
-test("a firmware locked constraint says so, an unaddressable one says why", function() {
+test("cmdPl addresses the peak power constraint", function() {
+  assert.deepEqual(Model.cmdPl(3, 215), ["alienwarectl", "pl", "3", "215"])
+})
+
+test("a firmware locked constraint says so", function() {
   assert.equal(Model.powerLimitNote({ index: 0, writable: false }), Model.PL_LOCKED_NOTE)
-  assert.equal(Model.powerLimitNote({ index: 2, writable: true }), "no CLI verb addresses this constraint")
+  assert.equal(Model.powerLimitNote({ index: 2, writable: true }), "")
   assert.equal(Model.powerLimitNote({ index: 1, writable: true }), "")
 })
 

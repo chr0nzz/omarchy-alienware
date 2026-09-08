@@ -28,7 +28,7 @@ const Usage = `alienwarectl <verb> [args]
   curve apply <file|->           apply a fan curve from JSON
   curve stop                     stop the fan curve and reset boost
   turbo <on|off>                 toggle Intel turbo
-  pl <1|2> <watts>               set a RAPL power limit
+  pl <1|2|3> <watts>             set a RAPL power limit
   gpu                            print the gpu object alone
   rgb status                     print the RGB device and zones
   rgb set <zone> <RRGGBB>        light one zone
@@ -187,8 +187,8 @@ func runDaemonVerb(env Env, args []string) int {
 			return emitError(env.Stdout, badRequest("pl takes a limit number and a wattage, for example pl 1 45"))
 		}
 		pl, err := strconv.Atoi(args[1])
-		if err != nil || (pl != 1 && pl != 2) {
-			return emitError(env.Stdout, badRequest("the power limit must be 1 or 2, got %q", args[1]))
+		if err != nil || pl < 1 || pl > 3 {
+			return emitError(env.Stdout, badRequest("the power limit must be 1, 2 or 3, got %q", args[1]))
 		}
 		watts, err := strconv.Atoi(args[2])
 		if err != nil || watts < 1 {
