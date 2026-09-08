@@ -200,3 +200,176 @@ this doesn't ship three untested code paths.
   ever matches VID 187c and the given PID (shouldn't happen for this
   device on a normal system), `FindOneByVIDPID` takes the lexicographically
   first `/dev/hidrawN` path. Use `--device=` to force a specific node.
+
+## kbdspike: the per-key keyboard controller (0d62:babc, APIv5)
+
+A second, separate spike CLI, `kbdspike`, targets a different chip on this
+machine: the Darfon per-key RGB keyboard controller at USB 0d62:babc, exposed
+as `/dev/hidraw1`. This is the keyboard's own input node. It is root-only by
+design (granting user access would expose keystrokes to any process), so
+`kbdspike` must run as root, through the project's root D-Bus daemon in the
+long run. It shares nothing with `afxspike`/`elc` beyond the pure-Go
+`internal/hidraw` layer: different device, different report format, different
+wire protocol (T-Troll's SDK calls this "API_V5").
+
+```bash
+cd spike
+go build ./...
+gofmt -l .
+go vet ./...
+go test ./...
+```
+
+### CLI usage
+
+```
+kbdspike <verb> [args] [--device=/dev/hidrawN]
+
+  probe                     open the device and print protocol and status info as JSON
+  all <RRGGBB>              set every key to one colour
+  key <index> <RRGGBB>      set a single key by its protocol index
+  sweep <first> <last>      light key indices one at a time, flags: --dwell=2s
+  off                       set every key to black
+```
+
+Every verb prints one JSON object per line to stdout and exits non-zero on
+failure, `{"ok":false,"error":"...","code":"bad-request"|"internal"}`.
+`--device` overrides hidraw node discovery, which otherwise locates the node
+by VID/PID 0d62:babc.
+
+### What the reference SDK says about APIv5
+
+Read from `AlienFX-SDK/include/alienfx_control.h` (the `COMMV5_*` byte
+arrays), `AlienFX-SDK/include/AlienFX_SDK.h` (the `API_V5`/`ALIENFX_V5_*`
+constants), and `AlienFX-SDK/src/AlienFX_SDK.cpp` (`Functions::PrepareAndSend`,
+`Reset`, `UpdateColors`, `AddV5DataBlock`, `SetAction`, `SetMultiAction`,
+`SetMultiColor`, `GetDeviceStatus`, `IsDeviceReady`, `SetBrightness`).
+
+| Question | Answer | Source |
+| --- | --- | --- |
+| Report size | 64 bytes total, including the report id byte | `Afx_Version` comment `API_V5 = 5, // 64`, cross-checked against this machine's own research notes |
+| Report id / feature id | `0xcc`, at byte 0 | `reportIDList[API_V5] == 0xcc` in `alienfx_control.h`, written into `buffer[0]` in `PrepareAndSend` after the raw command bytes are copied in |
+| Report type | Feature report, both ways | `PrepareAndSend`'s `case API_V5: result = HidD_SetFeature(...)`, and `GetDeviceStatus`'s `case API_V5: ... HidD_GetFeature(...)`. Never an Output report or plain `write()`, unlike APIv4 |
+| Reset opcode | `0x94` | `COMMV5_reset` |
+| Status query opcode | `0x93` (write), status byte at offset 2 of the feature-report read that follows | `COMMV5_status`, `GetDeviceStatus` |
+| Set-colours opcode | `0x8c 0x02`, then up to 15 four-byte key blocks starting at offset 4 | `COMMV5_colorSet`, `AddV5DataBlock`, `SetMultiAction`'s `bPos` loop (`bPos < length; bPos += 4`) |
+| Loop/commit-batch opcode | `0x8c 0x13`, sent once after all colour-set chunks for a given write | `COMMV5_loop`, called outside the chunking loop in `SetMultiAction`/`SetMultiColor` |
+| Apply/update opcode | `0x8b 0x01 0xff` | `COMMV5_update`, sent by `Functions::UpdateColors()`, called by application code (`Example-App`) after `SetMultiAction`, not automatically by it |
+| Key addressing | One byte per key block, value is **key index + 1**, not the raw index | `AddV5DataBlock`: `{(uint8_t)(index + 1), c->r, c->g, c->b}`, with the reference's own porter noting `// NOTE: +1 because parts start from 1, 0 is for reset? ig` |
+| Colour encoding | 8 bits per channel, R, G, B, in that byte order, no brightness byte per key | Same `AddV5DataBlock` line |
+| Ready/busy signal | Status byte `!= 0x80` means ready | `IsDeviceReady`, `ALIENFX_V5_WAITUPDATE = 0x80` |
+
+### What was ported faithfully
+
+- `ResetFrame` (`0x94`), `StatusFrame` (`0x93`), `ColorSetFrame` (`0x8c 0x02`
+  plus up to 15 `[index+1, R, G, B]` blocks), `LoopFrame` (`0x8c 0x13`),
+  `UpdateFrame` (`0x8b 0x01 0xff`), and `TurnOnFrame` (`0x83 0x38 0x9c` plus a
+  brightness byte at offset 4) are byte-for-byte reproductions of
+  `PrepareAndSend`'s output for the matching `COMMV5_*` command array plus
+  the field overrides each caller applies, worked out by hand-simulating
+  `memcpy(buffer, command, command[0]+1); buffer[0] = reportIDList[version];`
+  for each command.
+- The 15-keys-per-frame chunking, and sending exactly one `LoopFrame` after
+  all chunks (not one per chunk), reproduces `SetMultiAction`'s `API_V5`
+  branch exactly.
+- The key-index-plus-one wire encoding is carried over exactly as coded in
+  `AddV5DataBlock`, uncertainty comment included below.
+- `Device.SetKeyColors` composes reset, chunked colour-set, loop, and update
+  into one call, because every real caller in the reference (`Example-App`)
+  does exactly that sequence: `SetMultiAction(...)` then `UpdateColors()`.
+
+### What was inferred or intentionally diverged
+
+1. **The `GetDeviceStatus` read is corrected for Linux hidraw semantics.**
+   In the C++ source, `HidD_GetFeature(devHandle, buffer, length)` is called
+   with a **fresh, uninitialized** stack buffer, not the one that carried the
+   `0x93` status query. That is a real gap in the reference: Linux's
+   `HIDIOCGFEATURE` ioctl requires the caller to set `buf[0]` to the report
+   id being requested before the call. `kbdspike`'s `Device.Status()` sets
+   `buf[0] = 0xcc` explicitly before the read. This is the single most
+   important correctness fix relative to a literal port, and it is
+   untested against real hardware.
+2. **`Reset()` does not also query status.** The reference's `Reset()` calls
+   `GetDeviceStatus()` immediately after sending the reset command, but
+   discards the result entirely (`inSet` is set from the earlier
+   `PrepareAndSend` call, not from this read). `kbdspike`'s `Reset()` only
+   sends the reset frame. Colour output is unaffected either way; this
+   just drops one no-op device round trip.
+3. **The reference's `SetAction` for a single key calls `AddV5DataBlock`
+   twice at the same buffer offset**, which just overwrites the same 4
+   bytes with the same values. `SetKeyColors` writes it once.
+4. **No key index to key name table exists anywhere in the reference for
+   vid 0d62.** `Mappings::LoadMappings` reads a user-populated
+   `mappings.json` that starts empty; nothing ships default light names for
+   the Darfon controller. The closest hint is `alienfx-cli`'s interactive
+   naming wizard defaulting to `0x88` (136) lights when probing a `0d62`
+   device (`alienfx-cli/src/main.cpp`, the `probe` subcommand). `probe`,
+   `all`, `off`, and `sweep`'s default range (0-135, `kbd.DefaultKeyFirst`/
+   `DefaultKeyLast`) come from that one hardcoded number, not from any
+   documented zone count. `kbd.KeyNames` is an empty table; `probe` reports
+   `keyTableAvailable: false` plainly rather than inventing names.
+5. **Global effects (`COMMV5_setEffect`, `SetGlobalEffects`) were not
+   ported.** No required verb needs it, and the reference header's own
+   comment admits parts of that command are "purpose unknown" (a mask byte
+   at an uncertain offset). Porting it speculatively seemed like pure added
+   risk for this spike's actual goal, mapping key indices to physical keys.
+6. **`SetBrightness`/`TurnOnFrame` is ported and unit-tested but not wired
+   to a CLI verb**, since brightness was not in the required verb list.
+   `Device.SetBrightness` exists for a future PR.
+7. **Power-button/global-state persistence (`SaveLightsState`,
+   `SaveLightsStateToStartup`) was not ported**, for the same reason as in
+   `afxspike`: it is a separate, larger state machine the reference gates
+   behind `store`/`save` flags, none of the required verbs touch it, and it
+   writes to persistent device memory.
+
+### Things I am NOT confident about, numbered
+
+1. **Whether Feature reports are actually correct on Linux for this exact
+   chip.** The reference's Windows/hidapi-libusb backend uses
+   `hid_send_feature_report`/`hid_get_feature_report` for API_V5 without
+   qualification, and the task's own research notes independently say
+   "control via feature id 0xcc," so this is the best-supported guess
+   available, but it has not been tried against `/dev/hidraw1` by me.
+2. **Whether `GetFeature` with `buf[0]=0xcc` pre-set is the right fix**,
+   described in divergence #1 above. It is the standard, documented Linux
+   hidraw contract, but I have not verified it returns a real, non-zero
+   status byte on this specific device; it could just as easily return
+   `-EINVAL` if this controller's HID report descriptor does not define a
+   0xcc feature report the kernel will match against, or it could hang if
+   the firmware is in a bad state.
+3. **Whether the reset opcode (`0x94`) actually blanks previously-set key
+   colours, or only resets an internal state machine for accepting new
+   commands.** Nothing in the reference clarifies this. `sweep` calls
+   `SetKeyColors` per step, which calls `Reset()` first; if reset does not
+   blank prior colours, `sweep` will accumulate lit keys instead of showing
+   one at a time, the same open question the `elc` port flagged for its own
+   `Reset()`/zone sweep.
+4. **The `index + 1` wire offset in `AddV5DataBlock`.** The reference's own
+   porter was unsure of it (`// NOTE: +1 because parts start from 1, 0 is
+   for reset? ig`, a direct quote from the C++ source). I ported it exactly
+   as coded because it is the only documented behaviour available, but "0
+   is for reset" suggests wire index 0 might be a reserved/special value
+   rather than a real key, meaning key index 255 (wire value 0 after
+   wraparound) or some low real key index could collide with it. This
+   spike does not guard against that.
+5. **The 0-135 default key range (`kbd.DefaultKeyFirst`/`DefaultKeyLast`)
+   is a guess sourced from one hardcoded constant in an unrelated CLI tool's
+   interactive wizard**, not a documented zone count for this exact chip.
+   `all`/`off` will address all 136 indices whether or not the real
+   keyboard has that many; unused indices should be harmless no-ops if the
+   firmware ignores out-of-range keys, but that assumption itself is
+   untested.
+6. **Whether `UpdateFrame` (`0x8b 0x01 0xff`) is really required after every
+   `SetKeyColors` call, or only needed once per session.** The reference
+   only shows it called once, after a whole batch, in commented-out example
+   code; `kbdspike` sends it after every `all`/`key`/`sweep`-step write to
+   stay safe, which means `sweep` sends far more update frames than the
+   reference's own usage pattern implies are necessary. This is a
+   conservative choice, not a verified one, and if the firmware treats
+   rapid repeated updates specially (rate limiting, debounce, a wedge like
+   the AW-ELC controller has), `sweep` at a short `--dwell` could be the
+   first thing to find that out.
+7. **No live testing was done at all.** Per the task's hard rules, this was
+   built and unit-tested only, against fakes; `/dev/hidraw1` was never
+   opened by me, no built binary was run, and nothing here has touched real
+   hardware.
