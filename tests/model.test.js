@@ -497,8 +497,48 @@ test("mergeZones applies saved names and honours the enabled flag", () => {
   assert.equal(merged[1].known, false)
   assert.equal(merged[2].known, true)
   assert.equal(merged[2].enabled, false)
-  assert.equal(Model.namedZones(merged).length, 1)
+  assert.equal(Model.namedZones(merged).length, 2)
   assert.equal(Model.zonesNeedWizard(merged), false)
+})
+
+test("hiding every named zone does not send a named user back to the wizard", () => {
+  const device = [{ name: "Unknown" }, { name: "Unknown" }]
+  let merged = Model.mergeZones(device, [
+    { index: 0, name: "Keyboard left", enabled: true },
+    { index: 1, name: "Lid logo", enabled: true }
+  ], 2)
+  merged = Model.toggleZoneEnabled(merged, 0)
+  merged = Model.toggleZoneEnabled(merged, 1)
+  assert.equal(merged[0].enabled, false)
+  assert.equal(merged[1].enabled, false)
+  assert.equal(Model.namedZones(merged).length, 2)
+  assert.equal(Model.zonesNeedWizard(merged), false)
+})
+
+test("a hidden named zone still resolves as a valid colour target, not a set-all fallback", () => {
+  const device = [{ name: "Unknown" }, { name: "Unknown" }]
+  const merged = Model.mergeZones(device, [
+    { index: 0, name: "Keyboard left", enabled: true },
+    { index: 1, name: "Lid logo", enabled: false }
+  ], 2)
+  const visible = Model.namedZones(merged)
+  const cursor = 1
+  let selected = null
+  for (const z of visible) if (z.index === cursor) selected = z
+  assert.ok(selected)
+  assert.equal(selected.index, 1)
+})
+
+test("cursoring an unnamed slot finds no colour target for applyColorField to fall back on", () => {
+  const device = [{ name: "Unknown" }, { name: "Unknown" }]
+  const merged = Model.mergeZones(device, [
+    { index: 0, name: "Keyboard left", enabled: true }
+  ], 2)
+  const visible = Model.namedZones(merged)
+  const cursor = 1
+  let selected = null
+  for (const z of visible) if (z.index === cursor) selected = z
+  assert.equal(selected, null)
 })
 
 test("mergeZones prefers a real device name over the slot number", () => {
@@ -785,6 +825,23 @@ test("rgb command builders normalize their arguments", () => {
   assert.deepEqual(Model.cmdRgbBrightness(500), ["alienwarectl", "rgb", "brightness", "100"])
   assert.deepEqual(Model.cmdRgbIdentify(7), ["alienwarectl", "rgb", "identify", "7"])
   assert.deepEqual(Model.cmdRgbOff(), ["alienwarectl", "rgb", "off"])
+})
+
+test("queueKey keeps a colour write to one zone from evicting a write to another", () => {
+  const zone3 = Model.queueKey(Model.cmdRgbSet(3, "FF0000"))
+  const zone7 = Model.queueKey(Model.cmdRgbSet(7, "00FF00"))
+  assert.notEqual(zone3, zone7)
+})
+
+test("queueKey still coalesces repeated writes to the same zone", () => {
+  const first = Model.queueKey(Model.cmdRgbSet(3, "FF0000"))
+  const second = Model.queueKey(Model.cmdRgbSet(3, "0000FF"))
+  assert.equal(first, second)
+})
+
+test("queueKey still coalesces brightness and set-all spam regardless of value", () => {
+  assert.equal(Model.queueKey(Model.cmdRgbBrightness(10)), Model.queueKey(Model.cmdRgbBrightness(90)))
+  assert.equal(Model.queueKey(Model.cmdRgbSetAll("FF0000")), Model.queueKey(Model.cmdRgbSetAll("00FF00")))
 })
 
 test("no model string uses an em dash", () => {

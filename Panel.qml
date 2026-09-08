@@ -285,8 +285,8 @@ Panel {
     var target = Model.toList(visibleZones)
     var selected = null
     for (var i = 0; i < target.length; i++) if (target[i].index === zoneCursor) selected = target[i]
-    if (selected && selected.enabled) service.setZoneColor(selected.index, text)
-    else service.setColor(text)
+    if (selected) service.setZoneColor(selected.index, text)
+    else service.reportAction(false, "Select a zone first")
   }
 
   function refocusPanel() {
@@ -1113,7 +1113,7 @@ Panel {
               foreground: root.fg
               fontFamily: root.fontFamily
               fontSize: Style.font.caption
-              tooltipText: "Apply to the selected zone, or to everything when none is selected"
+              tooltipText: "Apply to the selected zone"
               onClicked: root.applyColorField()
             }
           }

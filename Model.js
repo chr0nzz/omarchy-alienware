@@ -795,7 +795,7 @@ function zoneConflicts(deviceZones, savedZones, zoneCount) {
 function namedZones(zones) {
   var list = toList(zones)
   var out = []
-  for (var i = 0; i < list.length; i++) if (list[i] && list[i].enabled) out.push(list[i])
+  for (var i = 0; i < list.length; i++) if (list[i] && list[i].known) out.push(list[i])
   return out
 }
 
@@ -1103,3 +1103,11 @@ function cmdRgbBrightness(value) { return ["alienwarectl", "rgb", "brightness", 
 function cmdRgbIdentify(zone) { return ["alienwarectl", "rgb", "identify", String(toInt(zone, 0))] }
 function cmdRgbOff() { return ["alienwarectl", "rgb", "off"] }
 function cmdVersion() { return ["alienwarectl", "version"] }
+
+function queueKey(argv) {
+  var list = toList(argv)
+  if (list[0] === "alienwarectl" && list[1] === "rgb" && list[2] === "set" && list.length >= 4) {
+    return list.slice(0, 4).join(" ")
+  }
+  return list.slice(0, 3).join(" ")
+}
