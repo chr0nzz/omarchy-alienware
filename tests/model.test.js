@@ -962,6 +962,62 @@ test("hex to hsv to hex round trips for a spread of colours", () => {
   }
 })
 
+test("pointToHueSat reads angle as hue and distance as saturation", () => {
+  assert.deepEqual(Model.pointToHueSat(1, 0), { h: 0, s: 100 })
+  assert.deepEqual(Model.pointToHueSat(0, 1), { h: 90, s: 100 })
+  assert.deepEqual(Model.pointToHueSat(-1, 0), { h: 180, s: 100 })
+  assert.deepEqual(Model.pointToHueSat(0, -1), { h: 270, s: 100 })
+  assert.deepEqual(Model.pointToHueSat(0.5, 0), { h: 0, s: 50 })
+})
+
+test("pointToHueSat treats the centre as hue 0, saturation 0", () => {
+  assert.deepEqual(Model.pointToHueSat(0, 0), { h: 0, s: 0 })
+  assert.deepEqual(Model.pointToHueSat(-0, -0), { h: 0, s: 0 })
+})
+
+test("pointToHueSat clamps points that land outside the wheel to the rim", () => {
+  assert.deepEqual(Model.pointToHueSat(2, 0), { h: 0, s: 100 })
+  var farCorner = Model.pointToHueSat(3, 3)
+  assert.equal(farCorner.h, 45)
+  assert.equal(farCorner.s, 100)
+})
+
+test("hueSatToPoint places the handle on the unit disc", () => {
+  var right = Model.hueSatToPoint(0, 100)
+  assert.ok(Math.abs(right.x - 1) < 1e-9 && Math.abs(right.y) < 1e-9)
+  var top = Model.hueSatToPoint(90, 100)
+  assert.ok(Math.abs(top.x) < 1e-9 && Math.abs(top.y - 1) < 1e-9)
+  var centre = Model.hueSatToPoint(200, 0)
+  assert.ok(Math.abs(centre.x) < 1e-9 && Math.abs(centre.y) < 1e-9)
+  var half = Model.hueSatToPoint(0, 50)
+  assert.ok(Math.abs(half.x - 0.5) < 1e-9 && Math.abs(half.y) < 1e-9)
+})
+
+test("hueSatToPoint wraps hue and clamps saturation like hsvToHex does", () => {
+  var wrapped = Model.hueSatToPoint(360, 50)
+  var base = Model.hueSatToPoint(0, 50)
+  assert.ok(Math.abs(wrapped.x - base.x) < 1e-9 && Math.abs(wrapped.y - base.y) < 1e-9)
+  var over = Model.hueSatToPoint(0, 500)
+  assert.ok(Math.abs(over.x - 1) < 1e-9 && Math.abs(over.y) < 1e-9)
+  var under = Model.hueSatToPoint(0, -500)
+  assert.ok(Math.abs(under.x) < 1e-9 && Math.abs(under.y) < 1e-9)
+})
+
+test("hue and saturation round trip through the wheel's polar point, away from the centre", () => {
+  var hues = [0, 30, 45, 90, 135, 180, 225, 270, 315, 359]
+  var sats = [1, 25, 50, 75, 100]
+  for (var i = 0; i < hues.length; i++) {
+    for (var j = 0; j < sats.length; j++) {
+      var h = hues[i]
+      var s = sats[j]
+      var point = Model.hueSatToPoint(h, s)
+      var back = Model.pointToHueSat(point.x, point.y)
+      assert.ok(Math.abs(back.h - h) < 1e-6, "hue " + h + "/" + s)
+      assert.ok(Math.abs(back.s - s) < 1e-6, "sat " + h + "/" + s)
+    }
+  }
+})
+
 test("parseThemePalette keeps only well formed name and hex pairs", () => {
   var text = [
     "accent\t#6e6e6e",

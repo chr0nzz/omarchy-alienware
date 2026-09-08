@@ -19,5 +19,6 @@ function load(name, globals) {
 }
 
 const Model = load("Model.js", {})
+const RgbSubTab = load("components/RgbSubTab.js", {})
 
-module.exports = { Model }
+module.exports = { Model, RgbSubTab }

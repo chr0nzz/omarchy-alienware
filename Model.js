@@ -756,6 +756,26 @@ function hsvToHex(h, s, v) {
   return (toHexPart(toByte(r)) + toHexPart(toByte(g)) + toHexPart(toByte(b))).toUpperCase()
 }
 
+function pointToHueSat(x, y) {
+  var xx = toNumber(x, 0)
+  var yy = toNumber(y, 0)
+  var r = Math.sqrt(xx * xx + yy * yy)
+  var s = clamp(r, 0, 1) * 100
+  var h = 0
+  if (r > 0) {
+    h = Math.atan2(yy, xx) * 180 / Math.PI
+    if (h < 0) h += 360
+  }
+  return { h: h, s: s }
+}
+
+function hueSatToPoint(h, s) {
+  var hh = ((toNumber(h, 0) % 360) + 360) % 360
+  var ss = clamp(toNumber(s, 0), 0, 100) / 100
+  var rad = hh * Math.PI / 180
+  return { x: ss * Math.cos(rad), y: ss * Math.sin(rad) }
+}
+
 function parseThemePalette(text) {
   var lines = String(text === undefined || text === null ? "" : text).split("\n")
   var map = {}

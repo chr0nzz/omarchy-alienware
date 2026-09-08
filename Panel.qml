@@ -1,8 +1,10 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
+import "components/RgbSubTab.js" as RgbSubTab
 import "components"
 
 Panel {
@@ -103,6 +105,68 @@ Panel {
   readonly property bool rgbConnected: service ? service.rgbConnected : false
   readonly property string rgbError: service ? service.rgbError : ""
 
+  readonly property var regionSwatchMap: {
+    var ids = Model.regionIds()
+    var out = {}
+    var colors = root.service ? root.service.regionColors : {}
+    for (var i = 0; i < ids.length; i++) {
+      var id = ids[i]
+      out[id] = colors[id] ? Model.hexPreview(colors[id]) : ""
+    }
+    return out
+  }
+  readonly property var regionPoweredMap: Model.normalizeRegionOnMap(root.service ? root.service.regionOn : null)
+
+  readonly property var rgbSubTabs: [
+    { key: "keyboard", label: "KEYBOARD" },
+    { key: "chassis", label: "CHASSIS" }
+  ]
+  property string rgbSubTab: RgbSubTab.DEFAULT_SUB_TAB
+  property bool rgbSubTabLoaded: false
+  readonly property bool rgbSubTabReady: root.service && root.service.dirReady
+  readonly property string rgbSubTabEffective: RgbSubTab.normalizeRgbSubTab(root.rgbSubTab, root.kbdPresent)
+
+  function applyRgbSubTabText(raw) {
+    root.rgbSubTab = RgbSubTab.normalizeRgbSubTab(raw, true)
+    root.rgbSubTabLoaded = true
+  }
+
+  function setRgbSubTab(key) {
+    var next = RgbSubTab.normalizeRgbSubTab(key, root.kbdPresent)
+    if (next === root.rgbSubTabEffective) return
+    root.rgbSubTab = next
+    if (next === "keyboard") root.clearRegionSelection()
+    else root.clearKeySelection()
+  }
+
+  function moveRgbSubTab(direction) {
+    var keys = RgbSubTab.SUB_TABS
+    var idx = keys.indexOf(root.rgbSubTabEffective)
+    if (idx === -1) idx = 0
+    var next = (idx + direction + keys.length) % keys.length
+    root.setRgbSubTab(keys[next])
+  }
+
+  onRgbSubTabChanged: {
+    if (!root.rgbSubTabLoaded) return
+    rgbSubTabSaveTimer.restart()
+  }
+
+  FileView {
+    id: rgbSubTabFile
+    path: root.rgbSubTabReady ? root.service.stateDir + "/rgb-subtab" : ""
+    atomicWrites: true
+    printErrors: false
+    onLoaded: root.applyRgbSubTabText(text())
+    onLoadFailed: root.applyRgbSubTabText("")
+  }
+
+  Timer {
+    id: rgbSubTabSaveTimer
+    interval: 250
+    onTriggered: if (rgbSubTabFile.path) rgbSubTabFile.setText(root.rgbSubTab)
+  }
+
   property var keySelection: []
   readonly property var kbd: service ? service.kbd : Model.normalizeKbdStatus(null)
   readonly property bool kbdPresent: service ? service.kbdPresent : false
@@ -161,6 +225,7 @@ Panel {
       if (!points.length) return
       pointCursor = Math.max(0, Math.min(points.length - 1, pointCursor + dy))
     } else if (tab === "rgb") {
+      if (rgbSubTabEffective !== "chassis") return
       var list = Model.toList(regions)
       if (!list.length) return
       regionCursor = Math.max(0, Math.min(list.length - 1, regionCursor + dy))
@@ -361,7 +426,14 @@ Panel {
   readonly property string footerText: {
     if (settingsOpen) return "⏎ save · esc cancel"
     if (tab === "fans") return "h/l tab · j/k point · +/- boost · 1-4 preset · a apply · s settings · esc"
-    if (tab === "rgb") return "h/l tab · j/k region · space select · click/drag keys · a/x regions · K/X keys · p power · c colour · i identify · t theme sync · esc"
+    if (tab === "rgb") {
+      var rgbParts = ["h/l tab"]
+      if (kbdPresent) rgbParts.push("H/L surface")
+      if (rgbSubTabEffective === "chassis") { rgbParts.push("j/k region", "space select", "a/x regions", "i identify") }
+      else { rgbParts.push("click/drag keys", "K/X keys") }
+      rgbParts.push("p power", "c colour", "t theme sync", "esc")
+      return rgbParts.join(" · ")
+    }
     return "h/l tab · j/k field · +/- adjust · 1-4 mode · p profiles · w save · esc"
   }
 
@@ -400,12 +472,14 @@ Panel {
       case "c": Qt.callLater(function() { colorField.forceActiveFocus(); colorField.selectAll() }); break
       case "t": service.toggleThemeSync(); break
       case "o": service.toggleLights(); break
-      case "i": var current = regions[regionCursor]; if (current) service.identifyRegion(current.id); break
-      case "a": selectAllRegions(); break
-      case "x": clearRegionSelection(); break
-      case "K": selectAllKeys(); break
-      case "X": clearKeySelection(); break
-      case "p": if (keySelection.length) toggleKeySelectionPower(); else toggleRegionPower(); break
+      case "H": moveRgbSubTab(-1); break
+      case "L": moveRgbSubTab(1); break
+      case "i": if (rgbSubTabEffective === "chassis") { var current = regions[regionCursor]; if (current) service.identifyRegion(current.id) } break
+      case "a": if (rgbSubTabEffective === "chassis") selectAllRegions(); break
+      case "x": if (rgbSubTabEffective === "chassis") clearRegionSelection(); break
+      case "K": if (rgbSubTabEffective === "keyboard") selectAllKeys(); break
+      case "X": if (rgbSubTabEffective === "keyboard") clearKeySelection(); break
+      case "p": if (rgbSubTabEffective === "keyboard") { if (keySelection.length) toggleKeySelectionPower() } else toggleRegionPower(); break
       default: break
       }
       return
@@ -451,8 +525,10 @@ Panel {
         if (root.settingsOpen) { root.saveSettings(); return }
         if (root.tab === "fans" && root.service) root.service.applyCurve()
         else if (root.tab === "rgb") {
-          var current = root.regions[root.regionCursor]
-          if (current) root.toggleRegionSelection(current.id)
+          if (root.rgbSubTabEffective === "chassis") {
+            var current = root.regions[root.regionCursor]
+            if (current) root.toggleRegionSelection(current.id)
+          }
         }
         else root.adjustPowerField(1)
       }
@@ -877,150 +953,177 @@ Panel {
             }
           }
 
-          Item {
+          Row {
+            id: rgbSubTabStrip
             width: parent.width
-            implicitHeight: Math.max(keyboardHeader.implicitHeight, keyboardActions.implicitHeight)
+            spacing: Style.space(4)
             visible: root.kbdPresent
 
-            PanelSectionHeader {
-              id: keyboardHeader
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-              text: "KEYBOARD"
-              foreground: root.fg
-              fontFamily: root.fontFamily
-            }
-
-            Row {
-              id: keyboardActions
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(6)
+            Repeater {
+              model: root.rgbSubTabs
 
               Button {
-                text: "Select all"
+                required property var modelData
+                text: modelData.label
+                selected: root.rgbSubTabEffective === modelData.key
                 bordered: true
                 foreground: root.fg
                 fontFamily: root.fontFamily
                 fontSize: Style.font.caption
-                tooltipText: "Select every mapped key (K)"
-                onClicked: root.selectAllKeys()
-              }
-
-              Button {
-                text: "Clear"
-                bordered: true
-                foreground: root.fg
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                tooltipText: "Clear the key selection (X)"
-                onClicked: root.clearKeySelection()
-              }
-
-              Button {
-                text: root.keySelection.length && root.service && root.service.keyOn[root.keySelection[0]] === false ? "Turn on" : "Turn off"
-                bordered: true
-                enabled: root.keySelection.length > 0
-                foreground: root.fg
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                tooltipText: "Toggle the selected keys on or off (p)"
-                onClicked: root.toggleKeySelectionPower()
-              }
-            }
-          }
-
-          KeyboardMap {
-            width: parent.width
-            visible: root.kbdPresent
-            present: root.kbdPresent
-            keyColors: root.service ? root.service.keyColors : ({})
-            keyOn: root.service ? root.service.keyOn : ({})
-            selection: root.keySelection
-            fg: root.fg
-            dim: root.dim
-            accent: root.accent
-            fontFamily: root.fontFamily
-            onToggleRequested: function(keyId) { root.toggleKeySelection(keyId) }
-            onDragSelectRequested: function(keyIds) { root.addKeysToSelection(keyIds) }
-          }
-
-          Text {
-            width: parent.width
-            wrapMode: Text.Wrap
-            visible: root.kbdPresent
-            text: Model.KBD_UNMAPPED_NOTE
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Item {
-            width: parent.width
-            implicitHeight: Math.max(regionsHeader.implicitHeight, regionsActions.implicitHeight)
-
-            PanelSectionHeader {
-              id: regionsHeader
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-              text: "REGIONS"
-              foreground: root.fg
-              fontFamily: root.fontFamily
-            }
-
-            Row {
-              id: regionsActions
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(6)
-
-              Button {
-                text: "Select all"
-                bordered: true
-                foreground: root.fg
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                tooltipText: "Select every region (a)"
-                onClicked: root.selectAllRegions()
-              }
-
-              Button {
-                text: "Clear"
-                bordered: true
-                foreground: root.fg
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                tooltipText: "Clear the selection (x)"
-                onClicked: root.clearRegionSelection()
+                horizontalPadding: Style.space(10)
+                verticalPadding: Style.space(3)
+                onClicked: root.setRgbSubTab(modelData.key)
               }
             }
           }
 
           Column {
+            id: keyboardSurface
             width: parent.width
-            spacing: Style.space(2)
+            spacing: Style.space(10)
+            visible: root.rgbSubTabEffective === "keyboard"
 
-            Repeater {
-              model: root.regions
+            Item {
+              width: parent.width
+              implicitHeight: Math.max(keyboardHeader.implicitHeight, keyboardActions.implicitHeight)
+              visible: root.kbdPresent
 
-              RegionRow {
-                required property var modelData
-                required property int index
-                width: parent.width
-                region: modelData
-                rowIndex: index
-                swatch: root.service && root.service.regionColors[modelData.id] ? Model.hexPreview(root.service.regionColors[modelData.id]) : ""
-                selected: root.regionSelection.indexOf(modelData.id) !== -1
-                powered: root.service ? root.service.regionOn[modelData.id] !== false : true
-                hasCursor: root.regionCursor === index
-                fg: root.fg
-                dim: root.dim
+              PanelSectionHeader {
+                id: keyboardHeader
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                text: "KEYBOARD"
+                foreground: root.fg
                 fontFamily: root.fontFamily
-                onPicked: function(rowIndex) { root.regionCursor = rowIndex }
-                onToggleRequested: function(regionId) { root.toggleRegionSelection(regionId) }
-                onIdentifyRequested: function(regionId) { if (root.service) root.service.identifyRegion(regionId) }
-                onPowerRequested: function(regionId) { root.setRegionPower([regionId], !root.isRegionOn(regionId)) }
               }
+
+              Row {
+                id: keyboardActions
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(6)
+
+                Button {
+                  text: "Select all"
+                  bordered: true
+                  foreground: root.fg
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  tooltipText: "Select every mapped key (K)"
+                  onClicked: root.selectAllKeys()
+                }
+
+                Button {
+                  text: "Clear"
+                  bordered: true
+                  foreground: root.fg
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  tooltipText: "Clear the key selection (X)"
+                  onClicked: root.clearKeySelection()
+                }
+
+                Button {
+                  text: root.keySelection.length && root.service && root.service.keyOn[root.keySelection[0]] === false ? "Turn on" : "Turn off"
+                  bordered: true
+                  enabled: root.keySelection.length > 0
+                  foreground: root.fg
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  tooltipText: "Toggle the selected keys on or off (p)"
+                  onClicked: root.toggleKeySelectionPower()
+                }
+              }
+            }
+
+            KeyboardMap {
+              width: parent.width
+              visible: root.kbdPresent
+              present: root.kbdPresent
+              keyColors: root.service ? root.service.keyColors : ({})
+              keyOn: root.service ? root.service.keyOn : ({})
+              selection: root.keySelection
+              fg: root.fg
+              dim: root.dim
+              accent: root.accent
+              fontFamily: root.fontFamily
+              onToggleRequested: function(keyId) { root.toggleKeySelection(keyId) }
+              onDragSelectRequested: function(keyIds) { root.addKeysToSelection(keyIds) }
+            }
+
+            Text {
+              width: parent.width
+              wrapMode: Text.Wrap
+              visible: root.kbdPresent
+              text: Model.KBD_UNMAPPED_NOTE
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+
+          Column {
+            id: chassisSurface
+            width: parent.width
+            spacing: Style.space(10)
+            visible: root.rgbSubTabEffective === "chassis"
+
+            Item {
+              width: parent.width
+              implicitHeight: Math.max(regionsHeader.implicitHeight, regionsActions.implicitHeight)
+
+              PanelSectionHeader {
+                id: regionsHeader
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                text: "REGIONS"
+                foreground: root.fg
+                fontFamily: root.fontFamily
+              }
+
+              Row {
+                id: regionsActions
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(6)
+
+                Button {
+                  text: "Select all"
+                  bordered: true
+                  foreground: root.fg
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  tooltipText: "Select every region (a)"
+                  onClicked: root.selectAllRegions()
+                }
+
+                Button {
+                  text: "Clear"
+                  bordered: true
+                  foreground: root.fg
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  tooltipText: "Clear the selection (x)"
+                  onClicked: root.clearRegionSelection()
+                }
+              }
+            }
+
+            RegionMap {
+              width: parent.width
+              regions: root.regions
+              swatches: root.regionSwatchMap
+              poweredMap: root.regionPoweredMap
+              selection: root.regionSelection
+              cursorIndex: root.regionCursor
+              fg: root.fg
+              dim: root.dim
+              accent: root.accent
+              fontFamily: root.fontFamily
+              onPicked: function(rowIndex) { root.regionCursor = rowIndex }
+              onToggleRequested: function(regionId) { root.toggleRegionSelection(regionId) }
+              onIdentifyRequested: function(regionId) { if (root.service) root.service.identifyRegion(regionId) }
+              onPowerRequested: function(regionId) { root.setRegionPower([regionId], !root.isRegionOn(regionId)) }
             }
           }
 
