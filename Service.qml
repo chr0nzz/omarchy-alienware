@@ -104,6 +104,8 @@ Item {
   property var curveGpu: Model.defaultCurve()
 
   property bool stateLoaded: false
+  property bool lightsRestored: false
+  property int rgbRestoreTries: 0
   property bool dirReady: false
   property bool busy: false
   property string lastAction: ""
@@ -264,10 +266,25 @@ Item {
         root.rgbLoaded = true
         if (!root.mode) root.mode = root.rgb.device.activeMode
         root.pruneZones()
+        if (!root.lightsRestored && root.stateLoaded && root.rgb.device.zoneCount > 0) {
+          root.lightsRestored = true
+          root.restoreSavedLights()
+        }
       } else {
         root.rgbError = result.error
         root.rgbLoaded = true
       }
+    }
+  }
+
+  Timer {
+    id: rgbRestoreRetry
+    interval: 3000
+    repeat: true
+    running: root.stateLoaded && !root.lightsRestored && root.rgbRestoreTries < 10
+    onTriggered: {
+      root.rgbRestoreTries++
+      root.refreshRgb()
     }
   }
 
@@ -524,6 +541,14 @@ Item {
 
   function toggleLights() {
     return lightsOn ? lightsOff() : restoreLights()
+  }
+
+  function restoreSavedLights() {
+    if (!lightsOn) return false
+    enqueue(Model.cmdRgbBrightness(brightness), "Brightness")
+    if (color) enqueue(Model.cmdRgbSetAll(color), "Colour")
+    if (mode) enqueue(Model.cmdRgbMode(mode), "Effect " + mode)
+    return true
   }
 
   function identifyZone(index) {
