@@ -24,6 +24,7 @@ Column {
   property real sat: 0
   property real val: 0
   property bool syncingFromHex: false
+  property string lastPicked: ""
 
   readonly property bool showSwatches: root.swatches.length > 1 && !Model.paletteIsFlat(root.swatches)
   readonly property color previewColor: Model.hexPreview(Model.hsvToHex(root.hue, root.sat, root.val))
@@ -40,10 +41,11 @@ Column {
 
   function commitFromHsv() {
     if (syncingFromHex) return
-    picked(Model.hsvToHex(hue, sat, val))
+    lastPicked = Model.hsvToHex(hue, sat, val)
+    picked(lastPicked)
   }
 
-  onHexChanged: syncFromHex(hex)
+  onHexChanged: if (Model.normalizeHex(hex) !== root.lastPicked) syncFromHex(hex)
   onHueChanged: commitFromHsv()
   onSatChanged: commitFromHsv()
   onValChanged: commitFromHsv()
@@ -99,7 +101,7 @@ Column {
       readonly property real centerY: height / 2
 
       function applyPoint(px, py) {
-        var hs = Model.pointToHueSat((px - centerX) / radius, (py - centerY) / radius)
+        var hs = Model.pointToHueSat((px - centerX) / radius, (centerY - py) / radius)
         root.hue = hs.h
         root.sat = hs.s
       }
@@ -169,14 +171,19 @@ Column {
         border.color: root.fg
         border.width: Style.space(2)
         x: wheel.centerX + point.x * wheel.radius - width / 2
-        y: wheel.centerY + point.y * wheel.radius - height / 2
+        y: wheel.centerY - point.y * wheel.radius - height / 2
       }
 
       MouseArea {
         anchors.fill: parent
         preventStealing: true
         cursorShape: Qt.PointingHandCursor
-        onPressed: function(mouse) { wheel.applyPoint(mouse.x, mouse.y) }
+        onPressed: function(mouse) {
+          var dx = (mouse.x - wheel.centerX) / wheel.radius
+          var dy = (mouse.y - wheel.centerY) / wheel.radius
+          if (dx * dx + dy * dy > 1) { mouse.accepted = false; return }
+          wheel.applyPoint(mouse.x, mouse.y)
+        }
         onPositionChanged: function(mouse) { if (pressed) wheel.applyPoint(mouse.x, mouse.y) }
       }
     }
@@ -200,8 +207,6 @@ Column {
         }
 
         Text {
-          width: preview.width
-          horizontalAlignment: Text.AlignHCenter
           textFormat: Text.PlainText
           text: "#" + Model.hsvToHex(root.hue, root.sat, root.val)
           color: root.dim
