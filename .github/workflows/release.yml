@@ -63,7 +63,8 @@ jobs:
           version="${{ steps.version.outputs.value }}"
           dir="alienwarectl-${version}-x86_64"
           mkdir -p "$dir"
-          cp alienwarectl README.md LICENSE "$dir/"
+          cp alienwarectl README.md LICENSE KEYMAP.txt "$dir/"
+          cp -r docs "$dir/docs"
           cp -r packaging "$dir/packaging"
           tar -czf "${dir}.tar.gz" "$dir"
           sha256sum "${dir}.tar.gz" alienwarectl > sha256sums.txt
