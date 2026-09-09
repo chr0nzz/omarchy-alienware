@@ -1,0 +1,29 @@
+post_install() {
+  udevadm control --reload-rules >/dev/null 2>&1 || true
+  udevadm trigger --subsystem-match=hidraw >/dev/null 2>&1 || true
+  cat <<'MSG'
+The alienwarectl helper is installed. One step remains.
+
+  sudo systemctl enable --now alienwarectl.service
+
+The bar plugin is installed separately through Omarchy, which clones it as a
+real directory. A symlink will not work, the shell's watcher does not follow one.
+
+  omarchy plugin add https://github.com/chr0nzz/omarchy-alienware.git --enable
+MSG
+}
+
+post_upgrade() {
+  systemctl daemon-reload
+  udevadm control --reload-rules >/dev/null 2>&1 || true
+  udevadm trigger --subsystem-match=hidraw >/dev/null 2>&1 || true
+  cat <<'MSG'
+Restart the helper to pick up the new binary.
+
+  sudo systemctl restart alienwarectl.service
+MSG
+}
+
+pre_remove() {
+  systemctl disable --now alienwarectl.service >/dev/null 2>&1 || true
+}

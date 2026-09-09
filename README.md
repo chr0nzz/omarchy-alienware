@@ -20,10 +20,14 @@ The plugin and the helper install separately.
 ```
 omarchy plugin add https://github.com/chr0nzz/omarchy-alienware.git --enable
 
-cd ~/.config/omarchy/plugins/xyzlab.alienware/packaging
+cd ~/.config/omarchy/plugins/xyzlab.alienware/packaging/bin
 makepkg -si
 sudo systemctl enable --now alienwarectl.service
 ```
+
+That installs the prebuilt binary from the latest release. It needs no Go toolchain and takes
+seconds. To build from source instead, run `makepkg -si` in `packaging/` rather than
+`packaging/bin/`. Both install the same eight files and either can be removed with `pacman -Rns`.
 
 The plugin must be a real directory. The shell's inotify watcher does not follow symlinks, which is
 why the package does not ship the plugin itself.
@@ -33,15 +37,15 @@ why the package does not ship the plugin itself.
 ```
 omarchy plugin update xyzlab.alienware
 
-cd ~/.config/omarchy/plugins/xyzlab.alienware/packaging
+cd ~/.config/omarchy/plugins/xyzlab.alienware/packaging/bin
 makepkg -si
 sudo systemctl restart alienwarectl.service
 ```
 
 The QML side hot-reloads on save, so a plugin update needs nothing more than `omarchy restart shell`.
-The helper does not: `makepkg` builds the git **tag** named by `pkgver`, never your working tree, so
-a helper change is only live once a new tag exists and you have rebuilt. Check what is actually
-running with `alienwarectl version`.
+The helper does not. Both packages install a published release, never your working tree, so a helper
+change is only live once a release exists and you have rebuilt. Check what is actually running with
+`alienwarectl version`.
 
 ## Uninstall
 

@@ -1,0 +1,44 @@
+pkgname=omarchy-alienware-bin
+_pkgname=omarchy-alienware
+pkgver=0.3.2
+pkgrel=1
+pkgdesc='Alienware fan, thermal, power and RGB control for Omarchy, prebuilt binary'
+arch=('x86_64')
+url='https://github.com/chr0nzz/omarchy-alienware'
+license=('MIT')
+depends=('dbus' 'polkit')
+provides=("${_pkgname}=${pkgver}")
+conflicts=("${_pkgname}")
+optdepends=(
+  'nvidia-utils: GPU power telemetry through nvidia-smi'
+  'quickshell: runs the Omarchy bar widget and panel'
+)
+options=('!strip')
+_dir="alienwarectl-${pkgver}-x86_64"
+source=("${url}/releases/download/v${pkgver}/${_dir}.tar.gz")
+sha256sums=('661175bda3105f86210a0018e2b6df721ea8d8d54323012db4f7af6b3990a852')
+
+install=omarchy-alienware-bin.install
+
+package() {
+  cd "${srcdir}/${_dir}"
+
+  install -Dm755 alienwarectl "${pkgdir}/usr/bin/alienwarectl"
+  install -Dm644 packaging/systemd/alienwarectl.service \
+    "${pkgdir}/usr/lib/systemd/system/alienwarectl.service"
+
+  install -Dm644 packaging/dbus/org.xyzlab.Alienware1.conf \
+    "${pkgdir}/usr/share/dbus-1/system.d/org.xyzlab.Alienware1.conf"
+  install -Dm644 packaging/dbus/org.xyzlab.Alienware1.service \
+    "${pkgdir}/usr/share/dbus-1/system-services/org.xyzlab.Alienware1.service"
+
+  install -Dm644 packaging/polkit/org.xyzlab.alienware.policy \
+    "${pkgdir}/usr/share/polkit-1/actions/org.xyzlab.alienware.policy"
+  install -Dm644 packaging/polkit/49-alienware.rules \
+    "${pkgdir}/usr/share/polkit-1/rules.d/49-alienware.rules"
+
+  install -Dm644 packaging/udev/71-alienware-aw-elc.rules \
+    "${pkgdir}/usr/lib/udev/rules.d/71-alienware-aw-elc.rules"
+
+  install -Dm644 README.md "${pkgdir}/usr/share/doc/${_pkgname}/README.md"
+}

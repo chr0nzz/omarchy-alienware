@@ -7,6 +7,11 @@ packaging/pkg/
 packaging/omarchy-alienware/
 packaging/*.pkg.tar.zst
 packaging/*.log
+packaging/bin/src/
+packaging/bin/pkg/
+packaging/bin/*.pkg.tar.zst
+packaging/bin/*.tar.gz
+packaging/bin/*.log
 /helper/alienfx-linux/
 /afxspike
 /awctl-ported
