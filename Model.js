@@ -478,6 +478,14 @@ function nextProfile(choices, current, direction) {
   return String(list[next])
 }
 
+function shouldRestoreProfile(wanted, current, lastGoodAt, resumeAt) {
+  var want = String(wanted || "")
+  var have = String(current || "")
+  if (!want || !have) return false
+  if (toNumber(lastGoodAt, 0) <= toNumber(resumeAt, 0)) return false
+  return want !== have
+}
+
 function profileWarning(status) {
   if (!status || !status.profile) return ""
   if (!status.profile.writable) return "The platform profile is read only right now"

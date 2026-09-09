@@ -1132,6 +1132,19 @@ test("the confirmed key indices match the machine that was probed", () => {
   }
 })
 
+test("shouldRestoreProfile waits for a poll newer than the resume before deciding", () => {
+  assert.equal(Model.shouldRestoreProfile("performance", "balanced", 200, 100), true)
+  assert.equal(Model.shouldRestoreProfile("performance", "balanced", 100, 200), false)
+  assert.equal(Model.shouldRestoreProfile("performance", "balanced", 100, 100), false)
+})
+
+test("shouldRestoreProfile does nothing when the profile already matches or is unknown", () => {
+  assert.equal(Model.shouldRestoreProfile("performance", "performance", 200, 100), false)
+  assert.equal(Model.shouldRestoreProfile("", "balanced", 200, 100), false)
+  assert.equal(Model.shouldRestoreProfile("performance", "", 200, 100), false)
+  assert.equal(Model.shouldRestoreProfile(null, null, 200, 100), false)
+})
+
 test("the number row runs contiguously from grave to equals with no gap", () => {
   const row = ["grave", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "minus", "equals"]
   for (let i = 0; i < row.length; i++) {

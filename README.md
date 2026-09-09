@@ -99,16 +99,21 @@ PrepareForSleep signal over dbus-monitor and, on the resume edge, calls reload()
 restore latches and re-applies the saved chassis and keyboard colours. The existing retry ladders
 cover the window where the USB devices have not finished re-enumerating yet.
 
-The thermal profile is not part of this, see below.
+The thermal profile is restored the same way, but by snapshot rather than by preference. On the
+pre-sleep edge the plugin records whatever profile sysfs currently reports. On resume it waits for a
+status poll newer than the resume, and if the profile has drifted it writes the snapshot back, then
+keeps checking every 2 seconds for 8 tries so it lands after power-profiles-daemon rather than
+before it. It stores no desired profile and asserts nothing on a cold start, so changing the profile
+with powerprofilesctl or the Omarchy menu is never fought.
 
 ## power-profiles-daemon
 
 power-profiles-daemon exposes three of the six profiles and re-applies its own choice on resume
 and on AC changes.
 
-This plugin treats sysfs as authoritative and leaves the daemon running. It does NOT re-assert the
-selected profile after resume, because it stores no desired profile, only what sysfs reports. So
-power-profiles-daemon wins across a suspend. If profiles revert on you, mask it:
+This plugin treats sysfs as authoritative and leaves the daemon running. It restores the profile
+across a suspend by snapshotting it beforehand, as described above, and gives up after 8 tries
+rather than fighting forever. If profiles still revert, mask it:
 
 ```
 systemctl mask power-profiles-daemon

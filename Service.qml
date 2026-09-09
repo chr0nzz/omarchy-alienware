@@ -113,6 +113,9 @@ Item {
   property int rgbRestoreTries: 0
   property bool keyboardRestored: false
   property int kbdRestoreTries: 0
+  property string profileBeforeSleep: ""
+  property int profileRestoreTries: 0
+  property double resumeAt: 0
   property bool dirReady: false
   property bool busy: false
   property string lastAction: ""
@@ -779,7 +782,15 @@ Item {
     command: ["dbus-monitor", "--system", "type='signal',interface='org.freedesktop.login1.Manager',member='PrepareForSleep'"]
     stdout: SplitParser {
       onRead: function(data) {
-        if (data.indexOf("boolean false") >= 0) root.reload()
+        if (data.indexOf("boolean true") >= 0) {
+          root.profileBeforeSleep = root.profileCurrent
+          return
+        }
+        if (data.indexOf("boolean false") >= 0) {
+          root.resumeAt = Date.now()
+          root.profileRestoreTries = 0
+          root.reload()
+        }
       }
     }
     onExited: sleepMonitorRetry.restart()
@@ -790,6 +801,20 @@ Item {
     interval: 5000
     repeat: false
     onTriggered: sleepMonitor.running = true
+  }
+
+  Timer {
+    id: profileRestoreRetry
+    interval: 2000
+    repeat: true
+    running: root.profileBeforeSleep !== "" && root.profileRestoreTries < 8
+    onTriggered: {
+      root.profileRestoreTries++
+      if (Model.shouldRestoreProfile(root.profileBeforeSleep, root.profileCurrent, root.lastGoodAt, root.resumeAt)) {
+        root.setProfile(root.profileBeforeSleep)
+      }
+      if (root.profileRestoreTries >= 8) root.profileBeforeSleep = ""
+    }
   }
 
   function rearmRestore() {
