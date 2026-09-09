@@ -74,6 +74,19 @@ Add to `~/.config/hypr/bindings.lua`:
 o.bind("SUPER SHIFT", "A", "Alienware", "omarchy-shell shell summon xyzlab.alienware '{}'")
 ```
 
+## If the panel will not close
+
+It takes exclusive keyboard focus while it is open, so a wedged panel can look like a wedged
+machine. It is not. Either of these closes it, and neither needs the keyboard focus back:
+
+```
+omarchy-shell alienware close
+omarchy-shell shell hide xyzlab.alienware
+```
+
+Clicking anywhere outside the panel closes it too, and `esc` closes it unless a text field has
+focus, in which case the first `esc` leaves the field and the second closes the panel.
+
 ## Docs
 
 | | |

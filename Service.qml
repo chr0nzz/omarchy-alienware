@@ -937,6 +937,10 @@ Item {
     Quickshell.execDetached(["omarchy-shell", "shell", "summon", pluginId, "{}"])
   }
 
+  function dismiss() {
+    Quickshell.execDetached(["omarchy-shell", "shell", "hide", pluginId])
+  }
+
   IpcHandler {
     target: "alienware"
 
@@ -1001,6 +1005,9 @@ Item {
     }
 
     function open(): void { root.summon() }
+    function show(): void { root.summon() }
+    function close(): void { root.dismiss() }
+    function hide(): void { root.dismiss() }
     function reload(): void { root.reload() }
   }
 
