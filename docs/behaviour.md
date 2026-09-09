@@ -2,6 +2,12 @@
 
 How the plugin behaves around suspend, audio, thermal profiles and failure.
 
+## Fan curves
+
+A curve can only make the fans louder, never quieter. The kernel exposes one additive `fanN_boost`
+value per fan, not a curve upload, so a curve raises fans above the firmware's own choice and can
+never lower them. The curve editor draws that floor.
+
 ## Resume from suspend
 
 Both controllers drop their LED frames across a suspend. Service.qml watches the logind

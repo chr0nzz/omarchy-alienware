@@ -1,7 +1,7 @@
 # Roadmap
 
-Everything below was established on the author's Alienware x15 R2. Other models in the family
-differ, in particular the chassis zone ids and the keyboard index map.
+Tested on an Alienware x15 R2. Other models in the family differ, in particular the chassis zone
+ids and the keyboard index map.
 
 ## Working
 
@@ -30,12 +30,3 @@ differ, in particular the chassis zone ids and the keyboard index map.
 | RGB effects | `rgb mode` is a recognised verb that always answers `not-supported`. Only flat colours per region are wired up |
 | Keyboard effects | Not started. The controller drives its own loop frame, so this is a protocol question, not a UI one |
 | Per led addressing inside a ring half | The AW-ELC supports it, the CLI only exposes whole regions |
-
-## Not possible on this hardware
-
-| Item | Why |
-|---|---|
-| Fan curves that make fans quieter | The kernel exposes one additive `fanN_boost` per fan, not a curve upload. A curve can only raise fans above the firmware's own choice, never lower them. The curve editor draws that floor |
-| Battery charge limit | Absent on this model |
-| GPU MUX and dynamic boost | Absent on this model |
-| Mute and caps lock indicator lamps | Firmware driven off HID state. They are not in the AlienFX matrix and cannot be written |

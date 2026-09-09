@@ -10,8 +10,8 @@ a root D-Bus daemon and a user-side CLI.
 - Chassis RGB, four regions, and per key keyboard lighting
 - Follows the Omarchy theme, shows mute state on the mute keys, and restores itself after a suspend
 
-Built for and tested on an Alienware x15 R2. Other models in the family differ, in particular the
-lighting zone ids and the keyboard index map.
+Tested on an Alienware x15 R2. Other models in the family differ, in particular the lighting zone
+ids and the keyboard index map.
 
 ## Install
 
@@ -74,7 +74,7 @@ o.bind("SUPER SHIFT", "A", "Alienware", "omarchy-shell shell summon xyzlab.alien
 
 | | |
 |---|---|
-| [Roadmap](docs/roadmap.md) | What works, what is planned, what this hardware cannot do |
+| [Roadmap](docs/roadmap.md) | What works and what is planned |
 | [Hardware](docs/hardware.md) | The two lighting controllers, the region map, the privilege model |
 | [Behaviour](docs/behaviour.md) | Suspend and resume, mute indicator, thermal profiles, G-Mode |
 | [CLI](docs/cli.md) | Every `alienwarectl` verb |
