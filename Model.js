@@ -76,8 +76,20 @@ var REGIONS = [
   { id: "ring-bottom", name: "Ring bottom", ledCount: 8 }
 ]
 
-function kbKey(id, label, w, index) {
-  return { id: id, label: label, w: w, index: index === undefined ? null : index }
+function kbKey(id, label, w, index, second) {
+  var primary = index === undefined ? null : index
+  var extras = []
+  if (primary !== null) {
+    extras.push(primary)
+    if (typeof second === "number") extras.push(second)
+  }
+  return { id: id, label: label, w: w, index: primary, indices: extras }
+}
+
+function keyIndices(key) {
+  if (!isKeyPaintable(key)) return []
+  if (key.indices && typeof key.indices.length === "number" && key.indices.length) return key.indices
+  return [key.index]
 }
 
 var KEYBOARD_ROWS = [
@@ -93,7 +105,7 @@ var KEYBOARD_ROWS = [
     kbKey("1", "1", 1, 21), kbKey("2", "2", 1, 22), kbKey("3", "3", 1, 23), kbKey("4", "4", 1, 24),
     kbKey("5", "5", 1, 25), kbKey("6", "6", 1, 26), kbKey("7", "7", 1, 27), kbKey("8", "8", 1, 28),
     kbKey("9", "9", 1, 29), kbKey("0", "0", 1, 30), kbKey("minus", "-", 1, 31), kbKey("equals", "=", 1, 32),
-    kbKey("backspace", "⌫", 2, 34)
+    kbKey("backspace", "⌫", 2, 34, 35)
   ],
   [
     kbKey("tab", "⇥", 1.5, 40),
@@ -103,19 +115,19 @@ var KEYBOARD_ROWS = [
     kbKey("lbracket", "[", 1, 52), kbKey("rbracket", "]", 1, 53), kbKey("backslash", "\\", 1.5, 55)
   ],
   [
-    kbKey("caps", "⇪", 1.75, 60),
+    kbKey("caps", "⇪", 1.75, 60, 61),
     kbKey("a", "A", 1, 62), kbKey("s", "S", 1, 63), kbKey("d", "D", 1, 64), kbKey("f", "F", 1, 65), kbKey("g", "G", 1, 66),
     kbKey("h", "H", 1, 67), kbKey("j", "J", 1, 68), kbKey("k", "K", 1, 69), kbKey("l", "L", 1, 70),
     kbKey("semicolon", ";", 1, 71), kbKey("quote", "'", 1, 72), kbKey("enter", "󰌑", 2.25, 74)
   ],
   [
-    kbKey("lshift", "⇧", 2.25, 81),
+    kbKey("lshift", "⇧", 2.25, 80, 81),
     kbKey("z", "Z", 1, 83), kbKey("x", "X", 1, 84), kbKey("c", "C", 1, 85), kbKey("v", "V", 1, 86), kbKey("b", "B", 1, 87),
     kbKey("n", "N", 1, 88), kbKey("m", "M", 1, 89), kbKey("comma", ",", 1, 90), kbKey("period", ".", 1, 91), kbKey("slash", "/", 1, 92),
     kbKey("rshift", "⇧", 1.75, 94), kbKey("pageup", "↑", 1, 114)
   ],
   [
-    kbKey("lctrl", "⌃", 1.25, 100), kbKey("fn", "fn", 1.25, 101), kbKey("lsuper", "󰖳", 1.25, 102), kbKey("lalt", "⌥", 1.25, 104),
+    kbKey("lctrl", "⌃", 1.25, 100), kbKey("fn", "fn", 1.25, 101), kbKey("lsuper", "󰖳", 1.25, 102, 103), kbKey("lalt", "⌥", 1.25, 104),
     kbKey("space", "␣", 6),
     kbKey("ralt", "⌥", 1.25, 111), kbKey("rsuper", "󰖳", 1.25, 109), kbKey("rctrl", "⌃", 1.25, 112),
     kbKey("left", "←", 1, 133), kbKey("pagedown", "↓", 1, 134), kbKey("right", "→", 1, 135)
@@ -1306,7 +1318,8 @@ function cmdKbdSetMap(map) {
     if (!isKeyPaintable(key)) continue
     var hex = normalizeHex(src[id])
     if (!hex) continue
-    pairs.push({ index: key.index, hex: hex })
+    var idxs = keyIndices(key)
+    for (var n = 0; n < idxs.length; n++) pairs.push({ index: idxs[n], hex: hex })
   }
   pairs.sort(function(a, b) { return a.index - b.index })
   var parts = []

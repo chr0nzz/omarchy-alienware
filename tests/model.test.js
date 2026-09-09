@@ -1122,7 +1122,7 @@ test("the confirmed key indices match the machine that was probed", () => {
     "8": 28, "0": 30, minus: 31, equals: 32, backspace: 34,
     tab: 40, q: 42, i: 49, o: 50, rbracket: 53, backslash: 55,
     caps: 60, a: 62, k: 69, l: 70, quote: 72, enter: 74,
-    lshift: 81, z: 83, c: 85, v: 86, slash: 92, rshift: 94,
+    lshift: 80, z: 83, c: 85, v: 86, slash: 92, rshift: 94,
     lctrl: 100, fn: 101, lsuper: 102, lalt: 104, rsuper: 109,
     ralt: 111, rctrl: 112, pageup: 114,
     left: 133, pagedown: 134, right: 135
@@ -1215,6 +1215,26 @@ test("applyMuteOverlay lights only the muted side and stays off when disabled", 
   assert.equal(micOnly.volmute, "111111")
   assert.deepEqual(Model.applyMuteOverlay(base, { enabled: false, sinkMuted: true }), base)
   assert.deepEqual(Model.applyMuteOverlay(base, { enabled: true, lightsOn: false, sinkMuted: true }), base)
+})
+
+test("the four wide keys carry two leds each", () => {
+  const pairs = { backspace: [34, 35], caps: [60, 61], lshift: [80, 81], lsuper: [102, 103] }
+  for (const id of Object.keys(pairs)) {
+    assert.deepEqual(Model.keyboardKeyById(id).indices, pairs[id], id)
+  }
+})
+
+test("every other paintable key has exactly one led", () => {
+  const wide = ["backspace", "caps", "lshift", "lsuper"]
+  for (const id of Model.keyboardPaintableIds()) {
+    if (wide.indexOf(id) >= 0) continue
+    assert.equal(Model.keyboardKeyById(id).indices.length, 1, id)
+  }
+})
+
+test("a wide key paints both of its leds in one write", () => {
+  const argv = Model.cmdKbdSetMap({ backspace: "ff0000", a: "00ff00" })
+  assert.equal(argv[3], "34=FF0000,35=FF0000,62=00FF00")
 })
 
 test("the number row runs contiguously from grave to equals with no gap", () => {
