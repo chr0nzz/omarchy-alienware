@@ -3,6 +3,9 @@ package kbd
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/hidraw"
@@ -232,4 +235,33 @@ type failingSetFeatureTransport struct {
 
 func (f *failingSetFeatureTransport) SetFeature(buf []byte) (int, error) {
 	return 0, errors.New("write refused")
+}
+
+func TestOpenLockedNodeReportsBusyNotMissing(t *testing.T) {
+	path := holdNodeLock(t)
+	_, err := Open(path)
+	if err == nil {
+		t.Fatalf("expected an error opening a node another process holds")
+	}
+	kerr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error %v is not a *kbd.Error", err)
+	}
+	if kerr.Code() != CodeBusy {
+		t.Errorf("code = %q, want %q", kerr.Code(), CodeBusy)
+	}
+}
+
+func holdNodeLock(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node")
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	t.Cleanup(func() { f.Close() })
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("flock %s: %v", path, err)
+	}
+	return path
 }

@@ -19,6 +19,7 @@ const (
 	ErrNameBadRequest   = Interface + ".BadRequest"
 	ErrNameNotSupported = Interface + ".NotSupported"
 	ErrNameHwMissing    = Interface + ".HwMissing"
+	ErrNameBusy         = Interface + ".Busy"
 	ErrNameInternal     = Interface + ".Internal"
 )
 
@@ -45,6 +46,8 @@ func mapError(err error) *dbus.Error {
 			return dbusError(ErrNameBadRequest, err.Error())
 		case kbd.CodeNoDevice:
 			return dbusError(ErrNameHwMissing, err.Error())
+		case kbd.CodeBusy:
+			return dbusError(ErrNameBusy, err.Error())
 		default:
 			return dbusError(ErrNameInternal, err.Error())
 		}

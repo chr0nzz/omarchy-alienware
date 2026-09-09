@@ -15,6 +15,7 @@ import (
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/elc"
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/fan"
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/hw"
+	"github.com/chr0nzz/omarchy-alienware/helper/internal/kbd"
 	"github.com/chr0nzz/omarchy-alienware/helper/internal/usbreset"
 )
 
@@ -49,6 +50,7 @@ const Usage = `alienwarectl <verb> [args]
   kbd status                        print keyboard presence and key count
   kbd set-map <idx=RRGGBB,...>      light named keys in one transaction
   kbd set-all <RRGGBB>              light every key
+  kbd identify <idx>                light one key white and blank the rest
   kbd off                           blank every key
   reset-fans                        write boost 0 straight to sysfs
   version                           print the binary version
@@ -505,7 +507,7 @@ func runRGBReset(env Env) int {
 
 func runKbd(env Env, c *client.Client, args []string) int {
 	if len(args) == 0 {
-		return emitError(env.Stdout, badRequest("kbd takes status, set-map, set-all or off"))
+		return emitError(env.Stdout, badRequest("kbd takes status, set-map, set-all, identify or off"))
 	}
 	switch args[0] {
 	case "status":
@@ -514,6 +516,8 @@ func runKbd(env Env, c *client.Client, args []string) int {
 		return runKbdSetMap(env, c, args[1:])
 	case "set-all":
 		return runKbdSetAll(env, c, args[1:])
+	case "identify":
+		return runKbdIdentify(env, c, args[1:])
 	case "off":
 		return runKbdOff(env, c)
 	}
@@ -588,6 +592,42 @@ func runKbdSetAll(env Env, c *client.Client, args []string) int {
 		OK    bool   `json:"ok"`
 		Color string `json:"color"`
 	}{true, hexColor(r, g, b)})
+}
+
+const identifyKeyColor = "ffffff"
+
+func identifyKeyMap(arg string) (int, string, error) {
+	idx, err := strconv.Atoi(strings.TrimSpace(arg))
+	if err != nil || idx < kbd.DefaultKeyFirst || idx > kbd.DefaultKeyLast {
+		return 0, "", badRequest("kbd identify key index must be a whole number %d-%d, got %q", kbd.DefaultKeyFirst, kbd.DefaultKeyLast, arg)
+	}
+	pairs := make([]string, 0, kbd.DefaultKeyLast-kbd.DefaultKeyFirst+1)
+	for i := kbd.DefaultKeyFirst; i <= kbd.DefaultKeyLast; i++ {
+		color := "000000"
+		if i == idx {
+			color = identifyKeyColor
+		}
+		pairs = append(pairs, strconv.Itoa(i)+"="+color)
+	}
+	return idx, strings.Join(pairs, ","), nil
+}
+
+func runKbdIdentify(env Env, c *client.Client, args []string) int {
+	if len(args) != 1 {
+		return emitError(env.Stdout, badRequest("kbd identify takes a key index, for example kbd identify 12"))
+	}
+	idx, payload, perr := identifyKeyMap(args[0])
+	if perr != nil {
+		return emitError(env.Stdout, perr)
+	}
+	if err := c.SetKeyboardKeys(payload); err != nil {
+		return emitError(env.Stdout, err)
+	}
+	return emitOK(env.Stdout, struct {
+		OK    bool   `json:"ok"`
+		Key   int    `json:"key"`
+		Color string `json:"color"`
+	}{true, idx, identifyKeyColor})
 }
 
 func runKbdOff(env Env, c *client.Client) int {

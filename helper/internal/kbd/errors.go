@@ -6,6 +6,7 @@ const (
 	CodeBadRequest = "bad-request"
 	CodeInternal   = "internal"
 	CodeNoDevice   = "kbd-not-found"
+	CodeBusy       = "kbd-busy"
 )
 
 type Error struct {

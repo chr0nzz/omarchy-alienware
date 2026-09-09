@@ -3,8 +3,11 @@ package elc
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/chr0nzz/omarchy-alienware/helper/internal/hidraw"
 )
 
 type fakeResetter struct {
@@ -180,6 +183,145 @@ func TestSessionStatusListsEveryRegion(t *testing.T) {
 	}
 	if len(regions) != len(Regions) {
 		t.Fatalf("got %d regions, want %d", len(regions), len(Regions))
+	}
+}
+
+func unprobedSession(inputs ...[]byte) (*Session, *fakeTransport) {
+	ft := &fakeTransport{inputResponses: inputs}
+	dev := NewWithTransport(ft, WriteModeOutput)
+	return &Session{dev: dev, path: "/dev/fake-hidraw", productID: DefaultProductID}, ft
+}
+
+func TestSessionStatusReadinessFollowsTheWedgeProbe(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []byte
+		want  bool
+	}{
+		{name: "ready when the controller answers", input: statusFrame(StatusV4Ready), want: true},
+		{name: "not ready when the controller reports all zero", input: statusFrame(0), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session, _ := unprobedSession(tt.input)
+			device, _ := session.Status()
+			if device.Ready != tt.want {
+				t.Fatalf("Ready = %v, want %v", device.Ready, tt.want)
+			}
+		})
+	}
+}
+
+func TestSessionStatusIsNotReadyWhenTheProbeFails(t *testing.T) {
+	session, _ := unprobedSession()
+	device, _ := session.Status()
+	if device.Ready {
+		t.Fatalf("Ready = true, want false when the probe read fails")
+	}
+}
+
+func TestSessionStatusProbesAtMostOnce(t *testing.T) {
+	session, ft := unprobedSession(statusFrame(StatusV4Ready))
+	for i := 0; i < 3; i++ {
+		device, _ := session.Status()
+		if !device.Ready {
+			t.Fatalf("Ready = false on call %d, want the memoised reading", i)
+		}
+	}
+	if ft.inputIdx != 1 {
+		t.Fatalf("probe reads = %d, want 1", ft.inputIdx)
+	}
+}
+
+func TestSessionStatusReusesTheProbeFromOpen(t *testing.T) {
+	opener := func() (*Session, error) {
+		ft := &fakeTransport{inputResponses: [][]byte{statusFrame(StatusV4Ready)}}
+		dev := NewWithTransport(ft, WriteModeOutput)
+		return &Session{dev: dev, path: "/dev/fake-hidraw", productID: DefaultProductID}, nil
+	}
+	session, err := openWithReset(opener, &fakeResetter{})
+	if err != nil {
+		t.Fatalf("openWithReset() error = %v", err)
+	}
+	defer session.Close()
+	device, _ := session.Status()
+	if !device.Ready {
+		t.Fatalf("Ready = false, want the reading openWithReset already took with no extra read")
+	}
+}
+
+func TestDevicePathFallsBackToTheSecondProductID(t *testing.T) {
+	tests := []struct {
+		name    string
+		found   uint16
+		wantPID uint16
+		wantErr bool
+	}{
+		{name: "primary id enumerates", found: DefaultProductID, wantPID: DefaultProductID},
+		{name: "alternate id enumerates", found: AltProductID, wantPID: AltProductID},
+		{name: "neither id enumerates", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(DeviceEnv, "")
+			var tried []uint16
+			restore := findDevice
+			findDevice = func(vid, pid uint16) (hidraw.DevInfo, error) {
+				tried = append(tried, pid)
+				if pid != tt.found {
+					return hidraw.DevInfo{}, errors.New("hidraw: no node found")
+				}
+				return hidraw.DevInfo{Path: "/dev/fake-hidraw", Vendor: vid, Product: pid}, nil
+			}
+			defer func() { findDevice = restore }()
+
+			path, pid, err := devicePath()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("devicePath() error = nil, want a no-device error")
+				}
+				eerr, ok := err.(*Error)
+				if !ok {
+					t.Fatalf("error %v is not an *elc.Error", err)
+				}
+				if eerr.Code() != CodeNoDevice {
+					t.Errorf("code = %q, want %q", eerr.Code(), CodeNoDevice)
+				}
+				for _, want := range []string{"0x0550", "0x0551"} {
+					if !strings.Contains(eerr.Error(), want) {
+						t.Errorf("error %q does not mention %s", eerr.Error(), want)
+					}
+				}
+			} else if err != nil {
+				t.Fatalf("devicePath() error = %v", err)
+			}
+			if !tt.wantErr {
+				if path != "/dev/fake-hidraw" {
+					t.Errorf("path = %q, want /dev/fake-hidraw", path)
+				}
+				if pid != tt.wantPID {
+					t.Errorf("product id = 0x%04x, want 0x%04x", pid, tt.wantPID)
+				}
+			}
+			if tt.found == AltProductID || tt.wantErr {
+				if len(tried) != 2 || tried[0] != DefaultProductID || tried[1] != AltProductID {
+					t.Errorf("tried = %v, want 0x0550 then 0x0551", tried)
+				}
+			}
+			if tt.found == DefaultProductID && len(tried) != 1 {
+				t.Errorf("tried = %v, want only the primary id", tried)
+			}
+		})
+	}
+}
+
+func TestSessionStatusReportsTheProductIDItFound(t *testing.T) {
+	ft := &fakeTransport{}
+	dev := NewWithTransport(ft, WriteModeOutput)
+	session := &Session{dev: dev, path: "/dev/fake-hidraw", productID: AltProductID, probed: true, ready: true}
+	device, _ := session.Status()
+	if device.ProductID != "0x0551" {
+		t.Fatalf("ProductID = %q, want 0x0551", device.ProductID)
 	}
 }
 

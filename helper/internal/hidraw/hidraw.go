@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -31,6 +32,12 @@ const (
 const (
 	CodeNotFound = "hidraw-not-found"
 	CodeIO       = "hidraw-io"
+	CodeBusy     = "hidraw-busy"
+)
+
+var (
+	lockTimeout  = 5 * time.Second
+	lockInterval = 25 * time.Millisecond
 )
 
 type Error struct {
@@ -84,7 +91,30 @@ func Open(path string) (*Device, error) {
 		}
 		return nil, newError(CodeIO, "hidraw: cannot open %s: %s", path, err.Error())
 	}
+	if err := lockFile(f); err != nil {
+		f.Close()
+		return nil, err
+	}
 	return &Device{file: f, path: path}, nil
+}
+
+func lockFile(f *os.File) error { return lockFileWithin(f, lockTimeout, lockInterval) }
+
+func lockFileWithin(f *os.File, timeout, interval time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) && !errors.Is(err, syscall.EINTR) {
+			return newError(CodeIO, "hidraw: cannot lock %s: %s", f.Name(), err.Error())
+		}
+		if !time.Now().Before(deadline) {
+			return newError(CodeBusy, "hidraw: %s is held by another process", f.Name())
+		}
+		time.Sleep(interval)
+	}
 }
 
 func (d *Device) Close() error { return d.file.Close() }
@@ -174,8 +204,32 @@ func FindByVIDPID(vid, pid uint16) ([]DevInfo, error) {
 			matches = append(matches, info)
 		}
 	}
-	sort.Slice(matches, func(i, j int) bool { return matches[i].Path < matches[j].Path })
+	sort.Slice(matches, func(i, j int) bool { return nodeLess(matches[i].Path, matches[j].Path) })
 	return matches, nil
+}
+
+func nodeLess(a, b string) bool {
+	na, oka := nodeIndex(a)
+	nb, okb := nodeIndex(b)
+	if oka && okb && na != nb {
+		return na < nb
+	}
+	if oka != okb {
+		return oka
+	}
+	return a < b
+}
+
+func nodeIndex(path string) (uint64, bool) {
+	name := filepath.Base(path)
+	if !strings.HasPrefix(name, "hidraw") {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(strings.TrimPrefix(name, "hidraw"), 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 func parseUevent(content string) (DevInfo, bool) {

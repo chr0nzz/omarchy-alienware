@@ -30,6 +30,7 @@ type Service struct {
 	savedProfile string
 
 	kbdMu           sync.Mutex
+	kbdDev          *kbd.Device
 	openKeyboard    func() (*kbd.Device, error)
 	keyboardPresent func() bool
 }

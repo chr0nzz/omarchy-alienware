@@ -22,6 +22,7 @@ func TestMapDBusErrorNames(t *testing.T) {
 		"org.xyzlab.Alienware1.BadRequest":             CodeBadRequest,
 		"org.xyzlab.Alienware1.NotSupported":           CodeNotSupported,
 		"org.xyzlab.Alienware1.HwMissing":              CodeHwMissing,
+		"org.xyzlab.Alienware1.Busy":                   CodeBusy,
 		"org.freedesktop.PolicyKit1.Error.Denied":      CodeDenied,
 		"org.freedesktop.DBus.Error.ServiceUnknown":    CodeNoDaemon,
 		"org.freedesktop.DBus.Error.NameHasNoOwner":    CodeNoDaemon,

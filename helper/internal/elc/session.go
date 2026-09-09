@@ -18,30 +18,44 @@ type Resetter interface {
 }
 
 type Session struct {
-	dev  *Device
-	path string
+	dev       *Device
+	path      string
+	productID uint16
+	probed    bool
+	ready     bool
 }
 
 func NewSession(dev *Device, path string) *Session {
-	return &Session{dev: dev, path: path}
+	return &Session{dev: dev, path: path, productID: DefaultProductID, probed: true, ready: true}
 }
 
 func (s *Session) Close() error { return s.dev.Close() }
 func (s *Session) Path() string { return s.path }
 
-func devicePath() (string, error) {
+func (s *Session) recordProbe(wedged bool) {
+	s.probed = true
+	s.ready = !wedged
+}
+
+var findDevice = hidraw.FindOneByVIDPID
+
+func devicePath() (string, uint16, error) {
 	if p := strings.TrimSpace(os.Getenv(DeviceEnv)); p != "" {
-		return p, nil
+		return p, DefaultProductID, nil
 	}
-	info, err := hidraw.FindOneByVIDPID(DefaultVendorID, DefaultProductID)
-	if err != nil {
-		return "", newError(CodeNoDevice, "%s", err.Error())
+	tried := make([]string, 0, len(ProductIDs))
+	for _, pid := range ProductIDs {
+		info, err := findDevice(DefaultVendorID, pid)
+		if err == nil {
+			return info.Path, pid, nil
+		}
+		tried = append(tried, fmt.Sprintf("0x%04x", pid))
 	}
-	return info.Path, nil
+	return "", 0, newError(CodeNoDevice, "hidraw: no node found for vid=0x%04x pid=%s", DefaultVendorID, strings.Join(tried, " or "))
 }
 
 func open() (*Session, error) {
-	path, err := devicePath()
+	path, productID, err := devicePath()
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +63,7 @@ func open() (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Session{dev: dev, path: path}, nil
+	return &Session{dev: dev, path: path, productID: productID}, nil
 }
 
 func (s *Session) looksWedged() (bool, error) {
@@ -82,6 +96,7 @@ func openWithReset(opener func() (*Session, error), resetter Resetter) (*Session
 		session.Close()
 		return nil, err
 	}
+	session.recordProbe(wedged)
 	if !wedged {
 		return session, nil
 	}
@@ -103,6 +118,7 @@ func openWithReset(opener func() (*Session, error), resetter Resetter) (*Session
 		retried.Close()
 		return nil, err
 	}
+	retried.recordProbe(wedged)
 	if !wedged {
 		return retried, nil
 	}
@@ -124,11 +140,15 @@ type RegionStatus struct {
 }
 
 func (s *Session) Status() (DeviceStatus, []RegionStatus) {
+	if !s.probed {
+		wedged, err := s.looksWedged()
+		s.recordProbe(err != nil || wedged)
+	}
 	device := DeviceStatus{
 		Path:      s.path,
 		VendorID:  fmt.Sprintf("0x%04x", DefaultVendorID),
-		ProductID: fmt.Sprintf("0x%04x", DefaultProductID),
-		Ready:     true,
+		ProductID: fmt.Sprintf("0x%04x", s.productID),
+		Ready:     s.ready,
 	}
 	regions := make([]RegionStatus, len(Regions))
 	for i, r := range Regions {

@@ -29,15 +29,55 @@ func (s *Service) KeyboardStatus() (string, *dbus.Error) {
 	return string(b), nil
 }
 
+func (s *Service) keyboardDevice() (*kbd.Device, error) {
+	if s.kbdDev != nil {
+		return s.kbdDev, nil
+	}
+	dev, err := s.openKeyboard()
+	if err != nil {
+		return nil, err
+	}
+	s.kbdDev = dev
+	return dev, nil
+}
+
+func (s *Service) dropKeyboard() {
+	if s.kbdDev == nil {
+		return
+	}
+	if err := s.kbdDev.Close(); err != nil {
+		s.logger.Printf("keyboard: closing the device failed: %v", err)
+	}
+	s.kbdDev = nil
+}
+
+func (s *Service) CloseKeyboard() {
+	s.kbdMu.Lock()
+	defer s.kbdMu.Unlock()
+	s.dropKeyboard()
+}
+
 func (s *Service) applyKeyboard(fn func(*kbd.Device) error) error {
 	s.kbdMu.Lock()
 	defer s.kbdMu.Unlock()
-	dev, err := s.openKeyboard()
+	dev, err := s.keyboardDevice()
 	if err != nil {
 		return err
 	}
-	defer dev.Close()
-	return fn(dev)
+	first := fn(dev)
+	if first == nil {
+		return nil
+	}
+	s.dropKeyboard()
+	dev, reopenErr := s.keyboardDevice()
+	if reopenErr != nil {
+		return first
+	}
+	if retry := fn(dev); retry != nil {
+		s.dropKeyboard()
+		return retry
+	}
+	return nil
 }
 
 func (s *Service) SetKeyboardKeys(payload string, sender dbus.Sender) *dbus.Error {

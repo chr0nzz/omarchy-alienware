@@ -18,11 +18,16 @@ type fakeKbdTransport struct {
 	mu       sync.Mutex
 	features [][]byte
 	closed   int
+	opens    int
+	failWith error
 }
 
 func (f *fakeKbdTransport) SetFeature(buf []byte) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failWith != nil {
+		return 0, f.failWith
+	}
 	f.features = append(f.features, append([]byte(nil), buf...))
 	return len(buf), nil
 }
@@ -47,6 +52,9 @@ func withFakeKeyboard(t *testing.T, svc *Service) *fakeKbdTransport {
 	t.Helper()
 	ft := &fakeKbdTransport{}
 	svc.openKeyboard = func() (*kbd.Device, error) {
+		ft.mu.Lock()
+		ft.opens++
+		ft.mu.Unlock()
 		return kbd.NewWithTransport(ft), nil
 	}
 	svc.keyboardPresent = func() bool { return true }
@@ -115,8 +123,8 @@ func TestSetKeyboardKeysAppliesInOneTransaction(t *testing.T) {
 	if !bytes.Equal(frames[1], want) {
 		t.Errorf("color set frame did not match the requested keys, got % x, want % x", frames[1], want)
 	}
-	if ft.closed != 1 {
-		t.Fatalf("device closed %d times, want exactly 1", ft.closed)
+	if ft.closed != 0 {
+		t.Fatalf("device closed %d times, want 0, a successful call keeps the cached device open", ft.closed)
 	}
 }
 
@@ -239,7 +247,114 @@ func TestKeyboardOperationsAreSerialized(t *testing.T) {
 	}
 	wg.Wait()
 
-	if ft.closed != 20 {
-		t.Fatalf("device closed %d times, want 20 (one full open/close cycle per call)", ft.closed)
+	if ft.opens != 1 {
+		t.Fatalf("device opened %d times, want 1 for 20 serialized calls", ft.opens)
+	}
+	if ft.closed != 0 {
+		t.Fatalf("device closed %d times, want 0 while every call succeeds", ft.closed)
+	}
+	wantKeys := kbd.DefaultKeyLast - kbd.DefaultKeyFirst + 1
+	perCall := 1 + (wantKeys+kbd.MaxKeysPerColorSetFrame-1)/kbd.MaxKeysPerColorSetFrame + 1 + 1
+	if len(ft.frames()) != 20*perCall {
+		t.Fatalf("got %d frames, want %d for 20 uninterleaved transactions", len(ft.frames()), 20*perCall)
+	}
+}
+
+func TestApplyKeyboardReusesTheCachedDeviceAcrossCalls(t *testing.T) {
+	svc := NewService(fakeReader(t), nil, quietLogger())
+	ft := withFakeKeyboard(t, svc)
+
+	var seen []*kbd.Device
+	for i := 0; i < 2; i++ {
+		if err := svc.applyKeyboard(func(dev *kbd.Device) error {
+			seen = append(seen, dev)
+			return nil
+		}); err != nil {
+			t.Fatalf("call %d: unexpected error: %v", i, err)
+		}
+	}
+	if ft.opens != 1 {
+		t.Fatalf("device opened %d times, want 1", ft.opens)
+	}
+	if ft.closed != 0 {
+		t.Fatalf("device closed %d times, want 0", ft.closed)
+	}
+	if seen[0] != seen[1] {
+		t.Fatal("the second call got a different device, the cache was not reused")
+	}
+}
+
+func TestApplyKeyboardReopensOnceAfterAnError(t *testing.T) {
+	svc := NewService(fakeReader(t), nil, quietLogger())
+	transports := []*fakeKbdTransport{{}, {}}
+	opens := 0
+	svc.openKeyboard = func() (*kbd.Device, error) {
+		if opens >= len(transports) {
+			return nil, errors.New("opened more times than the test expects")
+		}
+		dev := kbd.NewWithTransport(transports[opens])
+		opens++
+		return dev, nil
+	}
+
+	calls := 0
+	err := svc.applyKeyboard(func(dev *kbd.Device) error {
+		calls++
+		if calls == 1 {
+			return errors.New("write failed")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("the retry should have succeeded, got %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("fn ran %d times, want exactly 2", calls)
+	}
+	if opens != 2 {
+		t.Fatalf("device opened %d times, want 2", opens)
+	}
+	if transports[0].closed != 1 {
+		t.Fatalf("the failed device was closed %d times, want 1", transports[0].closed)
+	}
+	if transports[1].closed != 0 {
+		t.Fatalf("the reopened device was closed %d times, want 0", transports[1].closed)
+	}
+}
+
+func TestApplyKeyboardReturnsTheFirstErrorWhenTheReopenFails(t *testing.T) {
+	svc := NewService(fakeReader(t), nil, quietLogger())
+	opens := 0
+	svc.openKeyboard = func() (*kbd.Device, error) {
+		opens++
+		if opens > 1 {
+			return nil, errors.New("the device went away")
+		}
+		return kbd.NewWithTransport(&fakeKbdTransport{}), nil
+	}
+
+	first := errors.New("write failed")
+	err := svc.applyKeyboard(func(dev *kbd.Device) error { return first })
+	if !errors.Is(err, first) {
+		t.Fatalf("got %v, want the original error from the first attempt", err)
+	}
+}
+
+func TestCloseKeyboardIsSafeWhenNothingIsCached(t *testing.T) {
+	svc := NewService(fakeReader(t), nil, quietLogger())
+	ft := withFakeKeyboard(t, svc)
+
+	svc.CloseKeyboard()
+	if ft.opens != 0 || ft.closed != 0 {
+		t.Fatalf("opens=%d closed=%d, want 0 and 0 for an empty cache", ft.opens, ft.closed)
+	}
+
+	if derr := svc.SetKeyboardAll("112233", ":1.1"); derr != nil {
+		t.Fatalf("unexpected error: %v", derr)
+	}
+	svc.CloseKeyboard()
+	svc.CloseKeyboard()
+	if ft.closed != 1 {
+		t.Fatalf("device closed %d times, want exactly 1", ft.closed)
 	}
 }

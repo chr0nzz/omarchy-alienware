@@ -15,6 +15,7 @@ const (
 	CodeNotSupported = "not-supported"
 	CodeBadRequest   = "bad-request"
 	CodeHwMissing    = "hw-missing"
+	CodeBusy         = "device-busy"
 	CodeInternal     = "internal"
 )
 
@@ -57,6 +58,8 @@ func MapDBusError(err error) error {
 		return newError(CodeNotSupported, "%s", msg)
 	case strings.HasSuffix(derr.Name, ".HwMissing"):
 		return newError(CodeHwMissing, "%s", msg)
+	case strings.HasSuffix(derr.Name, ".Busy"):
+		return newError(CodeBusy, "%s", msg)
 	case derr.Name == "org.freedesktop.DBus.Error.AccessDenied":
 		return newError(CodeDenied, "the bus refused the call, check the D-Bus policy is installed: %s", msg)
 	case derr.Name == "org.freedesktop.DBus.Error.ServiceUnknown",

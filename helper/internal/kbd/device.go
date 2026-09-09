@@ -17,9 +17,17 @@ type Device struct {
 func Open(path string) (*Device, error) {
 	dev, err := hidraw.Open(path)
 	if err != nil {
+		if isBusy(err) {
+			return nil, newError(CodeBusy, "kbd: %s is in use by another process: %s", path, err.Error())
+		}
 		return nil, newError(CodeNoDevice, "kbd: cannot open %s: %s", path, err.Error())
 	}
 	return &Device{t: newHidrawTransport(dev)}, nil
+}
+
+func isBusy(err error) bool {
+	herr, ok := err.(*hidraw.Error)
+	return ok && herr.Code() == hidraw.CodeBusy
 }
 
 func NewWithTransport(t Transport) *Device {

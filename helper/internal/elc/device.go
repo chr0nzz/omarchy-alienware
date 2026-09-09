@@ -43,7 +43,10 @@ func ParseWriteMode(s string) (WriteMode, error) {
 const (
 	DefaultVendorID  uint16 = 0x187c
 	DefaultProductID uint16 = 0x0550
+	AltProductID     uint16 = 0x0551
 )
+
+var ProductIDs = []uint16{DefaultProductID, AltProductID}
 
 var ErrDeviceTimeout = newError(CodeTimeout, "elc: device did not report ready before the timeout")
 
@@ -55,9 +58,17 @@ type Device struct {
 func Open(path string, writeMode WriteMode) (*Device, error) {
 	dev, err := hidraw.Open(path)
 	if err != nil {
+		if isBusy(err) {
+			return nil, newError(CodeBusy, "elc: %s is in use by another process: %s", path, err.Error())
+		}
 		return nil, newError(CodeNoDevice, "elc: cannot open %s: %s", path, err.Error())
 	}
 	return &Device{t: newHidrawTransport(dev), writeMode: writeMode}, nil
+}
+
+func isBusy(err error) bool {
+	herr, ok := err.(*hidraw.Error)
+	return ok && herr.Code() == hidraw.CodeBusy
 }
 
 func NewWithTransport(t Transport, writeMode WriteMode) *Device {

@@ -3,6 +3,9 @@ package elc
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -307,4 +310,33 @@ func TestOpenMissingDeviceReturnsTypedError(t *testing.T) {
 	if eerr.Code() != CodeNoDevice {
 		t.Errorf("code = %q, want %q", eerr.Code(), CodeNoDevice)
 	}
+}
+
+func TestOpenLockedNodeReportsBusyNotMissing(t *testing.T) {
+	path := holdNodeLock(t)
+	_, err := Open(path, WriteModeOutput)
+	if err == nil {
+		t.Fatalf("expected an error opening a node another process holds")
+	}
+	eerr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error %v is not an *elc.Error", err)
+	}
+	if eerr.Code() != CodeBusy {
+		t.Errorf("code = %q, want %q", eerr.Code(), CodeBusy)
+	}
+}
+
+func holdNodeLock(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node")
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	t.Cleanup(func() { f.Close() })
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("flock %s: %v", path, err)
+	}
+	return path
 }

@@ -150,6 +150,7 @@ func Run(reader *hw.Reader, logger *log.Logger) error {
 		logger.Printf("sd_notify STOPPING failed: %v", err)
 	}
 	svc.Stop()
+	svc.CloseKeyboard()
 	if err := reader.ResetBoost(); err != nil {
 		logger.Printf("failsafe: could not reset fan boost on shutdown: %v", err)
 	}

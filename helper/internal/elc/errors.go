@@ -7,6 +7,7 @@ const (
 	CodeNotSupported = "not-supported"
 	CodeInternal     = "internal"
 	CodeNoDevice     = "aw-elc-not-found"
+	CodeBusy         = "aw-elc-busy"
 	CodeWedged       = "aw-elc-wedged"
 	CodeTimeout      = "aw-elc-timeout"
 )
