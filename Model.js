@@ -57,6 +57,9 @@ var ERROR_MESSAGES = {
   "not-supported": "Not supported on this machine",
   "bad-request": "The helper rejected that request",
   "hw-missing": "Hardware interface not present",
+  "device-busy": "The lighting device is busy, try again",
+  "aw-elc-busy": "The lighting controller is busy, try again",
+  "kbd-busy": "The keyboard controller is busy, try again",
   "no-openrgb": "OpenRGB server is not reachable",
   "internal": "The helper hit an internal error"
 }
@@ -106,7 +109,7 @@ var KEYBOARD_ROWS = [
     kbKey("semicolon", ";", 1, 71), kbKey("quote", "'", 1, 72), kbKey("enter", "󰌑", 2.25, 74)
   ],
   [
-    kbKey("lshift", "⇧", 2.25, 78),
+    kbKey("lshift", "⇧", 2.25, 81),
     kbKey("z", "Z", 1, 83), kbKey("x", "X", 1, 84), kbKey("c", "C", 1, 85), kbKey("v", "V", 1, 86), kbKey("b", "B", 1, 87),
     kbKey("n", "N", 1, 88), kbKey("m", "M", 1, 89), kbKey("comma", ",", 1, 90), kbKey("period", ".", 1, 91), kbKey("slash", "/", 1, 92),
     kbKey("rshift", "⇧", 1.75, 94), kbKey("pageup", "↑", 1, 114)
@@ -484,6 +487,35 @@ function shouldRestoreProfile(wanted, current, lastGoodAt, resumeAt) {
   if (!want || !have) return false
   if (toNumber(lastGoodAt, 0) <= toNumber(resumeAt, 0)) return false
   return want !== have
+}
+
+function parseMuteState(text) {
+  var s = String(text === undefined || text === null ? "" : text)
+  var m = s.match(/Volume:\s*([0-9]*\.?[0-9]+)/)
+  if (!m) return null
+  return { volume: toNumber(m[1], 0), muted: s.indexOf("[MUTED]") >= 0 }
+}
+
+function isAudioEvent(line) {
+  var s = String(line === undefined || line === null ? "" : line)
+  if (s.indexOf("Event ") < 0) return false
+  return s.indexOf(" on sink") >= 0 || s.indexOf(" on source") >= 0
+}
+
+function cmdMuteQuery(target) {
+  return ["wpctl", "get-volume", String(target || "")]
+}
+
+function applyMuteOverlay(map, opts) {
+  var o = isObject(opts) ? opts : {}
+  var base = isObject(map) ? map : {}
+  if (o.enabled !== true || o.lightsOn === false) return base
+  var hex = normalizeHex(o.color) || "FF0000"
+  var out = {}
+  for (var k in base) out[k] = base[k]
+  if (o.sinkMuted === true) out["volmute"] = hex
+  if (o.sourceMuted === true) out["micmute"] = hex
+  return out
 }
 
 function profileWarning(status) {
@@ -907,6 +939,22 @@ function effectiveRegionColors(regions, regionsOn) {
   return out
 }
 
+function blankRegionMap(ids) {
+  var list = toList(ids)
+  var valid = regionIds()
+  var out = {}
+  for (var i = 0; i < list.length; i++) {
+    if (valid.indexOf(String(list[i])) < 0) continue
+    out[String(list[i])] = "000000"
+  }
+  return out
+}
+
+function regionPowerPayload(regions, regionsOn, ids, lightsOn) {
+  if (lightsOn === true) return effectiveRegionColors(regions, regionsOn)
+  return blankRegionMap(ids)
+}
+
 function hasAnyKey(obj) {
   if (!isObject(obj)) return false
   for (var k in obj) return true
@@ -984,6 +1032,21 @@ function effectiveKeyColors(keys, keysOn) {
     if (hex) out[id] = hex
   }
   return out
+}
+
+function blankKeyMap(ids) {
+  var list = toList(ids)
+  var out = {}
+  for (var i = 0; i < list.length; i++) {
+    if (!isKeyPaintable(keyboardKeyById(list[i]))) continue
+    out[String(list[i])] = "000000"
+  }
+  return out
+}
+
+function keyPowerPayload(keys, keysOn, ids, lightsOn) {
+  if (lightsOn === true) return effectiveKeyColors(keys, keysOn)
+  return blankKeyMap(ids)
 }
 
 function keyboardRestoreSequence(state) {
@@ -1239,4 +1302,19 @@ function queueKey(argv) {
     return list.slice(0, 4).join(" ")
   }
   return list.slice(0, 3).join(" ")
+}
+
+function elcReadAction(state) {
+  var s = isObject(state) ? state : {}
+  if (s.readRunning === true) return "running"
+  if (s.writeRunning === true || s.queued === true) return "defer"
+  return "start"
+}
+
+function elcWriteAction(state) {
+  var s = isObject(state) ? state : {}
+  if (s.writeRunning === true) return "running"
+  if (s.queued !== true) return "idle"
+  if (s.readRunning === true) return "defer"
+  return "start"
 }

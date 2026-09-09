@@ -66,6 +66,18 @@ Every write, whatever its shape, is applied as a single open-device transaction.
 family wedges under write pressure, so the daemon never re-opens the device per key and serialises
 keyboard calls against each other.
 
+## Mute indicator
+
+The two mute keys follow PipeWire. `pactl subscribe` provides the events, `wpctl get-volume` reads
+the state, and a muted sink paints `volmute` (index 16) while a muted source paints `micmute`
+(index 19) red.
+
+It is an overlay, applied at write time on top of the effective key map and never stored into the
+saved colours, so muting cannot eat whatever colour you picked for those two keys. The indicator
+shows even when that key is individually switched off, because an indicator you have turned off is
+useless, but it stays dark when the master lights toggle is off. Reads are debounced by 400ms, since
+this controller wedges when transactions arrive too close together.
+
 ## Privilege
 
 Sysfs control nodes are root-owned, so fan, thermal, turbo and power writes go through the daemon

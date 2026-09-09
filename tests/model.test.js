@@ -1122,7 +1122,7 @@ test("the confirmed key indices match the machine that was probed", () => {
     "8": 28, "0": 30, minus: 31, equals: 32, backspace: 34,
     tab: 40, q: 42, i: 49, o: 50, rbracket: 53, backslash: 55,
     caps: 60, a: 62, k: 69, l: 70, quote: 72, enter: 74,
-    lshift: 78, z: 83, c: 85, v: 86, slash: 92, rshift: 94,
+    lshift: 81, z: 83, c: 85, v: 86, slash: 92, rshift: 94,
     lctrl: 100, fn: 101, lsuper: 102, lalt: 104, rsuper: 109,
     ralt: 111, rctrl: 112, pageup: 114,
     left: 133, pagedown: 134, right: 135
@@ -1143,6 +1143,42 @@ test("shouldRestoreProfile does nothing when the profile already matches or is u
   assert.equal(Model.shouldRestoreProfile("", "balanced", 200, 100), false)
   assert.equal(Model.shouldRestoreProfile("performance", "", 200, 100), false)
   assert.equal(Model.shouldRestoreProfile(null, null, 200, 100), false)
+})
+
+test("parseMuteState reads the wpctl volume line in both states", () => {
+  assert.deepEqual(Model.parseMuteState("Volume: 0.80"), { volume: 0.8, muted: false })
+  assert.deepEqual(Model.parseMuteState("Volume: 1.00 [MUTED]"), { volume: 1, muted: true })
+  assert.equal(Model.parseMuteState("nonsense"), null)
+  assert.equal(Model.parseMuteState(""), null)
+  assert.equal(Model.parseMuteState(null), null)
+})
+
+test("isAudioEvent picks out sink and source changes and ignores the rest", () => {
+  assert.equal(Model.isAudioEvent("Event 'change' on source #51"), true)
+  assert.equal(Model.isAudioEvent("Event 'change' on sink #52"), true)
+  assert.equal(Model.isAudioEvent("Event 'new' on client #99"), false)
+  assert.equal(Model.isAudioEvent(""), false)
+  assert.equal(Model.isAudioEvent(null), false)
+})
+
+test("applyMuteOverlay never mutates the map it is given", () => {
+  const base = { a: "112233", volmute: "445566" }
+  const out = Model.applyMuteOverlay(base, { enabled: true, lightsOn: true, sinkMuted: true, color: "FF0000" })
+  assert.equal(base.volmute, "445566")
+  assert.equal(out.volmute, "FF0000")
+  assert.equal(out.a, "112233")
+})
+
+test("applyMuteOverlay lights only the muted side and stays off when disabled", () => {
+  const base = { volmute: "111111", micmute: "222222" }
+  const both = Model.applyMuteOverlay(base, { enabled: true, lightsOn: true, sinkMuted: true, sourceMuted: true, color: "FF0000" })
+  assert.equal(both.volmute, "FF0000")
+  assert.equal(both.micmute, "FF0000")
+  const micOnly = Model.applyMuteOverlay(base, { enabled: true, lightsOn: true, sourceMuted: true, color: "FF0000" })
+  assert.equal(micOnly.micmute, "FF0000")
+  assert.equal(micOnly.volmute, "111111")
+  assert.deepEqual(Model.applyMuteOverlay(base, { enabled: false, sinkMuted: true }), base)
+  assert.deepEqual(Model.applyMuteOverlay(base, { enabled: true, lightsOn: false, sinkMuted: true }), base)
 })
 
 test("the number row runs contiguously from grave to equals with no gap", () => {
@@ -1289,4 +1325,181 @@ test("buildStatePayload round trips per key colour and power alongside the regio
   assert.deepEqual(back.keys, { esc: "0000FF", tab: "00FF00" })
   assert.equal(back.keysOn.esc, false)
   assert.equal(back.keysOn.tab, true)
+})
+
+const ELC_STATES = [false, true]
+
+function elcView(readRunning, writeRunning, queued) {
+  return { readRunning: readRunning, writeRunning: writeRunning, queued: queued }
+}
+
+test("the elc gate never lets a status read and a queued write start together", () => {
+  for (const readRunning of ELC_STATES) {
+    for (const writeRunning of ELC_STATES) {
+      for (const queued of ELC_STATES) {
+        const view = elcView(readRunning, writeRunning, queued)
+        const read = Model.elcReadAction(view)
+        const write = Model.elcWriteAction(view)
+        assert.ok(!(read === "start" && write === "start"), JSON.stringify(view))
+        if (readRunning || writeRunning) assert.ok(read !== "start" && write !== "start", JSON.stringify(view))
+      }
+    }
+  }
+})
+
+test("a status read waits for the write queue to drain instead of racing it", () => {
+  assert.equal(Model.elcReadAction(elcView(false, true, false)), "defer")
+  assert.equal(Model.elcReadAction(elcView(false, false, true)), "defer")
+  assert.equal(Model.elcReadAction(elcView(false, false, false)), "start")
+  assert.equal(Model.elcReadAction(elcView(true, false, false)), "running")
+})
+
+test("a queued write waits for a status read to finish and stays idle with nothing queued", () => {
+  assert.equal(Model.elcWriteAction(elcView(true, false, true)), "defer")
+  assert.equal(Model.elcWriteAction(elcView(false, false, true)), "start")
+  assert.equal(Model.elcWriteAction(elcView(true, false, false)), "idle")
+  assert.equal(Model.elcWriteAction(elcView(false, false, false)), "idle")
+  assert.equal(Model.elcWriteAction(elcView(false, true, true)), "running")
+})
+
+function runElcGate(initial) {
+  const s = {
+    readRunning: initial.readRunning === true,
+    writeRunning: false,
+    queueLen: initial.queueLen,
+    pendingRead: initial.pendingRead === true,
+    armed: false
+  }
+  let readsDone = 0
+  let writesDone = 0
+  let steps = 0
+
+  function view() {
+    return elcView(s.readRunning, s.writeRunning, s.queueLen > 0)
+  }
+
+  function check() {
+    assert.ok(!(s.readRunning && s.writeRunning), "two processes held the elc at once")
+  }
+
+  function tryWrite() {
+    const action = Model.elcWriteAction(view())
+    if (action === "defer") { s.armed = true; return }
+    if (action !== "start") return
+    s.writeRunning = true
+    s.queueLen--
+    check()
+  }
+
+  function tryRead() {
+    const action = Model.elcReadAction(view())
+    if (action === "running") { s.pendingRead = false; return }
+    if (action === "defer") { s.pendingRead = true; s.armed = true; return }
+    s.pendingRead = false
+    s.readRunning = true
+    check()
+  }
+
+  if (s.pendingRead) tryRead()
+  tryWrite()
+
+  while (steps++ < 100) {
+    if (s.readRunning) { s.readRunning = false; readsDone++; tryWrite(); continue }
+    if (s.writeRunning) { s.writeRunning = false; writesDone++; tryWrite(); continue }
+    if (!s.armed) break
+    s.armed = false
+    if (s.pendingRead) tryRead()
+    tryWrite()
+  }
+
+  return { readsDone: readsDone, writesDone: writesDone, queueLen: s.queueLen, pendingRead: s.pendingRead, steps: steps }
+}
+
+test("a deferred read and a full write queue both make progress instead of deadlocking", () => {
+  for (const readRunning of ELC_STATES) {
+    for (const queueLen of [0, 1, 3]) {
+      const out = runElcGate({ readRunning: readRunning, pendingRead: true, queueLen: queueLen })
+      assert.ok(out.steps < 100, "gate never settled")
+      assert.equal(out.queueLen, 0)
+      assert.equal(out.writesDone, queueLen)
+      assert.equal(out.pendingRead, false)
+      assert.ok(out.readsDone >= 1, "the status read never happened")
+    }
+  }
+})
+
+function payloadPairs(argv) {
+  return String(argv[3] || "").split(",").filter(function(part) { return part !== "" })
+}
+
+test("effectiveKeyColors makes a superseded queued write safe to drop", () => {
+  const first = Model.effectiveKeyColors({ esc: "FF0000" }, {})
+  const second = Model.effectiveKeyColors({ esc: "FF0000", f1: "00FF00" }, {})
+  const third = Model.effectiveKeyColors({ esc: "FF0000", f1: "00FF00", f2: "0000FF" }, {})
+  assert.equal(third.esc, "FF0000")
+  assert.equal(third.f1, "00FF00")
+  assert.equal(third.f2, "0000FF")
+  assert.equal(second.f2, undefined)
+  const latest = payloadPairs(Model.cmdKbdSetMap(third))
+  assert.deepEqual(latest, ["0=FF0000", "1=00FF00", "2=0000FF"])
+  for (const pair of payloadPairs(Model.cmdKbdSetMap(first))) assert.ok(latest.includes(pair), pair)
+  for (const pair of payloadPairs(Model.cmdKbdSetMap(second))) assert.ok(latest.includes(pair), pair)
+  assert.equal(Model.queueKey(Model.cmdKbdSetMap(first)), "alienwarectl kbd set-map")
+})
+
+test("effectiveRegionColors carries every earlier region so a coalesced write loses nothing", () => {
+  const earlier = Model.effectiveRegionColors({ power: "FF0000" }, {})
+  const map = Model.effectiveRegionColors({ power: "FF0000", logo: "00FF00" }, { logo: false })
+  assert.equal(map.power, "FF0000")
+  assert.equal(map.logo, "000000")
+  const latest = payloadPairs(Model.cmdRgbSetMap(map))
+  assert.deepEqual(latest, ["power=FF0000", "logo=000000"])
+  for (const pair of payloadPairs(Model.cmdRgbSetMap(earlier))) assert.ok(latest.includes(pair), pair)
+  assert.equal(Model.queueKey(Model.cmdRgbSetMap(map)), "alienwarectl rgb set-map")
+})
+
+const ALL_RED_REGIONS = { power: "FF0000", logo: "FF0000", "ring-top": "FF0000", "ring-bottom": "FF0000" }
+
+test("switching a region off with the lights on rewrites every region", () => {
+  const map = Model.regionPowerPayload(ALL_RED_REGIONS, { power: false }, ["power"], true)
+  assert.deepEqual(payloadPairs(Model.cmdRgbSetMap(map)), ["power=000000", "logo=FF0000", "ring-top=FF0000", "ring-bottom=FF0000"])
+})
+
+test("switching a region off while the lights are off blanks only that region", () => {
+  const map = Model.regionPowerPayload(ALL_RED_REGIONS, { power: false }, ["power"], false)
+  assert.deepEqual(map, { power: "000000" })
+  assert.deepEqual(payloadPairs(Model.cmdRgbSetMap(map)), ["power=000000"])
+})
+
+test("blankRegionMap keeps only ids that name a real region", () => {
+  assert.deepEqual(Model.blankRegionMap(["power", "ring-top", "nope"]), { power: "000000", "ring-top": "000000" })
+  assert.deepEqual(Model.blankRegionMap([]), {})
+})
+
+test("switching a key off with the lights on rewrites every painted key", () => {
+  const map = Model.keyPowerPayload({ esc: "FF0000", f1: "00FF00" }, { esc: false }, ["esc"], true)
+  assert.equal(map.esc, "000000")
+  assert.equal(map.f1, "00FF00")
+  assert.deepEqual(payloadPairs(Model.cmdKbdSetMap(map)), ["0=000000", "1=00FF00"])
+})
+
+test("switching a key off while the lights are off blanks only that key", () => {
+  const map = Model.keyPowerPayload({ esc: "FF0000", f1: "00FF00" }, { esc: false }, ["esc"], false)
+  assert.deepEqual(map, { esc: "000000" })
+  assert.deepEqual(payloadPairs(Model.cmdKbdSetMap(map)), ["0=000000"])
+})
+
+test("blankKeyMap drops keys with no led and keys that do not exist", () => {
+  assert.deepEqual(Model.blankKeyMap(["esc", "space", "nope"]), { esc: "000000" })
+  assert.deepEqual(Model.blankKeyMap([]), {})
+})
+
+test("a busy controller renders as retryable rather than as a missing device", () => {
+  const codes = ["aw-elc-busy", "kbd-busy", "device-busy"]
+  for (const code of codes) {
+    const result = Model.parseResult(JSON.stringify({ ok: false, code: code, error: "the node is held by another process" }), 1)
+    assert.equal(result.ok, false)
+    assert.equal(result.code, code)
+    assert.ok(result.error.indexOf("busy") >= 0, result.error)
+  }
 })

@@ -83,6 +83,7 @@ Item {
 
   property var rgb: Model.normalizeRgbStatus(null)
   property bool rgbLoaded: false
+  property bool rgbRefreshPending: false
   property string rgbError: ""
   readonly property bool rgbConnected: rgb.device.ready && rgbError === ""
   readonly property var regions: rgb.regions
@@ -114,6 +115,10 @@ Item {
   property bool keyboardRestored: false
   property int kbdRestoreTries: 0
   property string profileBeforeSleep: ""
+  property bool muteSync: true
+  property string muteColor: "FF0000"
+  property bool sinkMuted: false
+  property bool sourceMuted: false
   property int profileRestoreTries: 0
   property double resumeAt: 0
   property bool dirReady: false
@@ -267,10 +272,96 @@ Item {
     scheduleSave()
   }
 
+  function kbdOverlay(map) {
+    return Model.applyMuteOverlay(map, {
+      enabled: root.muteSync,
+      lightsOn: root.lightsOn,
+      sinkMuted: root.sinkMuted,
+      sourceMuted: root.sourceMuted,
+      color: root.muteColor
+    })
+  }
+
+  function pushKeyboard(label) {
+    if (!root.kbd.present) return false
+    var map = root.kbdOverlay(Model.effectiveKeyColors(keyColors, keyOn))
+    if (!Model.hasAnyKey(map)) return false
+    enqueue(Model.cmdKbdSetMap(map), String(label || "Keyboard colour"))
+    return true
+  }
+
+  function readMuteState() {
+    if (sinkMuteProc.running || sourceMuteProc.running) { muteDebounce.restart(); return }
+    sinkMuteProc.command = Model.cmdMuteQuery("@DEFAULT_AUDIO_SINK@")
+    sinkMuteProc.running = true
+  }
+
+  Process {
+    id: muteMonitor
+    running: root.muteSync
+    command: ["pactl", "subscribe"]
+    stdout: SplitParser {
+      onRead: function(data) { if (Model.isAudioEvent(data)) muteDebounce.restart() }
+    }
+    onExited: muteMonitorRetry.restart()
+  }
+
+  Timer {
+    id: muteMonitorRetry
+    interval: 5000
+    repeat: false
+    onTriggered: if (root.muteSync) muteMonitor.running = true
+  }
+
+  Timer {
+    id: muteDebounce
+    interval: 400
+    repeat: false
+    onTriggered: root.readMuteState()
+  }
+
+  Process {
+    id: sinkMuteProc
+    stdout: StdioCollector { id: sinkMuteOut; waitForEnd: true }
+    onExited: function(exitCode) {
+      var st = Model.parseMuteState(sinkMuteOut.text)
+      if (st) root.sinkMuted = st.muted
+      sourceMuteProc.command = Model.cmdMuteQuery("@DEFAULT_AUDIO_SOURCE@")
+      sourceMuteProc.running = true
+    }
+  }
+
+  Process {
+    id: sourceMuteProc
+    stdout: StdioCollector { id: sourceMuteOut; waitForEnd: true }
+    onExited: function(exitCode) {
+      var st = Model.parseMuteState(sourceMuteOut.text)
+      if (st) root.sourceMuted = st.muted
+      root.pushKeyboard("Mute")
+    }
+  }
+
+  function elcState() {
+    return { readRunning: rgbProc.running, writeRunning: writeProc.running, queued: queue.length > 0 }
+  }
+
   function refreshRgb() {
-    if (rgbProc.running) return
+    var action = Model.elcReadAction(elcState())
+    if (action === "running") { rgbRefreshPending = false; return }
+    if (action === "defer") { rgbRefreshPending = true; elcRetry.restart(); return }
+    rgbRefreshPending = false
     rgbProc.command = shellArgv(Model.cmdRgbStatus())
     rgbProc.running = true
+  }
+
+  Timer {
+    id: elcRetry
+    interval: 250
+    repeat: false
+    onTriggered: {
+      if (root.rgbRefreshPending) root.refreshRgb()
+      root.pump()
+    }
   }
 
   Process {
@@ -290,6 +381,7 @@ Item {
         root.rgbError = result.error
         root.rgbLoaded = true
       }
+      root.pump()
     }
   }
 
@@ -336,6 +428,7 @@ Item {
         if (!root.keyboardRestored && root.stateLoaded && root.kbd.present) {
           root.keyboardRestored = true
           root.restoreSavedKeyboard()
+          root.readMuteState()
         }
       } else {
         root.kbdError = result.error
@@ -370,9 +463,14 @@ Item {
   }
 
   function pump() {
-    if (writeProc.running) return
-    if (!queue.length) {
+    var action = Model.elcWriteAction(elcState())
+    if (action === "running") return
+    if (action === "idle") {
       busy = false
+      return
+    }
+    if (action === "defer") {
+      elcRetry.restart()
       return
     }
     var job = queue[0]
@@ -568,17 +666,15 @@ Item {
     for (var k in regionColors) nextColors[k] = regionColors[k]
     var nextOn = {}
     for (var k2 in regionOn) nextOn[k2] = regionOn[k2]
-    var map = {}
     for (var i = 0; i < list.length; i++) {
       nextColors[list[i]] = clean
       nextOn[list[i]] = true
-      map[list[i]] = clean
     }
     regionColors = nextColors
     regionOn = nextOn
     color = clean
     lightsOn = true
-    enqueue(Model.cmdRgbSetMap(map), "Colour")
+    enqueue(Model.cmdRgbSetMap(Model.effectiveRegionColors(nextColors, nextOn)), "Colour")
     scheduleSave()
     return true
   }
@@ -590,17 +686,21 @@ Item {
       actionStatus = "Select at least one region first"
       return false
     }
+    var nextColors = {}
+    for (var k in regionColors) nextColors[k] = regionColors[k]
     var nextOn = {}
-    for (var k in regionOn) nextOn[k] = regionOn[k]
-    var map = {}
+    for (var k2 in regionOn) nextOn[k2] = regionOn[k2]
     for (var i = 0; i < list.length; i++) {
       var id = list[i]
       nextOn[id] = on === true
-      map[id] = on === true ? (Model.normalizeHex(regionColors[id]) || Model.normalizeHex(color) || "FFFFFF") : "000000"
+      if (on === true && !Model.normalizeHex(nextColors[id])) {
+        nextColors[id] = Model.normalizeHex(color) || "FFFFFF"
+      }
     }
+    regionColors = nextColors
     regionOn = nextOn
     if (on === true) lightsOn = true
-    enqueue(Model.cmdRgbSetMap(map), on === true ? "Region on" : "Region off")
+    enqueue(Model.cmdRgbSetMap(Model.regionPowerPayload(nextColors, nextOn, list, lightsOn)), on === true ? "Region on" : "Region off")
     scheduleSave()
     return true
   }
@@ -642,7 +742,7 @@ Item {
     if (Model.hasAnyKey(map)) enqueue(Model.cmdRgbSetMap(map), "Colour")
     if (kbdPresent) {
       var keyMap = Model.effectiveKeyColors(keyColors, keyOn)
-      if (Model.hasAnyKey(keyMap)) enqueue(Model.cmdKbdSetMap(keyMap), "Keyboard colour")
+      if (Model.hasAnyKey(keyMap)) enqueue(Model.cmdKbdSetMap(root.kbdOverlay(keyMap)), "Keyboard colour")
     }
     scheduleSave()
     return true
@@ -686,17 +786,15 @@ Item {
     for (var k in keyColors) nextColors[k] = keyColors[k]
     var nextOn = {}
     for (var k2 in keyOn) nextOn[k2] = keyOn[k2]
-    var map = {}
     for (var i = 0; i < list.length; i++) {
       if (!Model.isKeyPaintable(Model.keyboardKeyById(list[i]))) continue
       nextColors[list[i]] = clean
       nextOn[list[i]] = true
-      map[list[i]] = clean
     }
     keyColors = nextColors
     keyOn = nextOn
     lightsOn = true
-    enqueue(Model.cmdKbdSetMap(map), "Key colour")
+    enqueue(Model.cmdKbdSetMap(root.kbdOverlay(Model.effectiveKeyColors(nextColors, nextOn))), "Key colour")
     scheduleSave()
     return true
   }
@@ -708,18 +806,22 @@ Item {
       actionStatus = "Select at least one key first"
       return false
     }
+    var nextColors = {}
+    for (var k in keyColors) nextColors[k] = keyColors[k]
     var nextOn = {}
-    for (var k in keyOn) nextOn[k] = keyOn[k]
-    var map = {}
+    for (var k2 in keyOn) nextOn[k2] = keyOn[k2]
     for (var i = 0; i < list.length; i++) {
       var id = list[i]
       if (!Model.isKeyPaintable(Model.keyboardKeyById(id))) continue
       nextOn[id] = on === true
-      map[id] = on === true ? (Model.normalizeHex(keyColors[id]) || Model.normalizeHex(color) || "FFFFFF") : "000000"
+      if (on === true && !Model.normalizeHex(nextColors[id])) {
+        nextColors[id] = Model.normalizeHex(color) || "FFFFFF"
+      }
     }
+    keyColors = nextColors
     keyOn = nextOn
     if (on === true) lightsOn = true
-    enqueue(Model.cmdKbdSetMap(map), on === true ? "Key on" : "Key off")
+    enqueue(Model.cmdKbdSetMap(root.kbdOverlay(Model.keyPowerPayload(nextColors, nextOn, list, lightsOn))), on === true ? "Key on" : "Key off")
     scheduleSave()
     return true
   }
@@ -827,6 +929,7 @@ Item {
   function reload() {
     lastResult = null
     rearmRestore()
+    if (muteSync) readMuteState()
     poll()
     refreshRgb()
     refreshKbd()
@@ -913,6 +1016,8 @@ Item {
     saveTimer.stop()
     actionReset.stop()
     writeWatchdog.stop()
+    elcRetry.stop()
+    rgbRefreshPending = false
     queue = []
     statusProc.running = false
     rgbProc.running = false
