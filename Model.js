@@ -1025,6 +1025,35 @@ function hasAnyKey(obj) {
   return false
 }
 
+function pluginDir(configHome, home, id) {
+  var base = String(configHome === undefined || configHome === null ? "" : configHome).trim()
+  if (!base) {
+    var h = String(home === undefined || home === null ? "" : home).trim()
+    if (!h) return ""
+    base = h + "/.config"
+  }
+  var slug = String(id === undefined || id === null ? "" : id).trim()
+  if (!slug) return ""
+  return base.replace(/\/+$/, "") + "/omarchy/plugins/" + slug
+}
+
+var INSTALL_TERMINALS = ["omarchy-launch-terminal", "$TERMINAL", "ghostty", "alacritty", "kitty", "foot", "wezterm", "xterm"]
+
+function installArgv(scriptPath) {
+  var path = String(scriptPath === undefined || scriptPath === null ? "" : scriptPath).trim()
+  if (!path) return []
+  var list = []
+  for (var i = 0; i < INSTALL_TERMINALS.length; i++) {
+    list.push(INSTALL_TERMINALS[i] === "$TERMINAL" ? '"$TERMINAL"' : INSTALL_TERMINALS[i])
+  }
+  var script = 'set -e; s="$1"; for t in ' + list.join(" ") + '; do ' +
+    '[ -n "$t" ] || continue; command -v "$t" >/dev/null 2>&1 || continue; ' +
+    'case "$t" in omarchy-launch-terminal) exec "$t" bash "$s";; ' +
+    '*) exec "$t" -e bash "$s";; esac; done; ' +
+    'echo "no terminal emulator found" >&2; exit 1'
+  return ["bash", "-lc", script, "alienware-install", path]
+}
+
 function restoreSequence(state) {
   var out = []
   if (!isObject(state) || state.lightsOn !== true) return out

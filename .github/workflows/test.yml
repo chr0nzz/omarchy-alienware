@@ -66,6 +66,30 @@ jobs:
       - name: manifest
         run: node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8'))"
 
+  versions:
+    name: Versions agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: manifest, package, helper and PKGBUILD must match
+        run: |
+          manifest=$(python3 -c "import json;print(json.load(open('manifest.json'))['version'])")
+          pkg=$(python3 -c "import json;print(json.load(open('package.json'))['version'])")
+          helper=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' helper/internal/cli/cli.go)
+          makepkg=$(sed -n 's/^pkgver=//p' packaging/PKGBUILD)
+          echo "manifest.json      $manifest"
+          echo "package.json       $pkg"
+          echo "cli.go             $helper"
+          echo "packaging/PKGBUILD $makepkg"
+          if [ "$manifest" != "$pkg" ] || [ "$manifest" != "$helper" ] || [ "$manifest" != "$makepkg" ]; then
+            echo "these must all be the same version"
+            exit 1
+          fi
+      - name: a release note exists for this version
+        run: |
+          manifest=$(python3 -c "import json;print(json.load(open('manifest.json'))['version'])")
+          test -f "release-notes/v${manifest}.md"
+
   style:
     name: House rules
     runs-on: ubuntu-latest

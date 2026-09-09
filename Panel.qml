@@ -675,8 +675,28 @@ Panel {
           Text {
             width: parent.width
             wrapMode: Text.Wrap
-            text: "Install the helper and start the daemon:\nsudo systemctl enable --now alienwarectl.service\nalienwarectl status"
+            text: "The helper is not installed. It opens a terminal so you can see every command before it runs."
             color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Button {
+            text: "Install the helper"
+            bordered: true
+            focusable: true
+            foreground: root.fg
+            fontFamily: root.fontFamily
+            fontSize: Style.font.caption
+            tooltipText: "Opens a terminal running packaging/bin makepkg -si"
+            onClicked: if (root.service) root.service.installHelper()
+          }
+
+          Text {
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: "Or by hand: cd packaging/bin && makepkg -si"
+            color: Qt.darker(root.fg, 1.8)
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }

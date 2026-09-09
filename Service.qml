@@ -14,6 +14,8 @@ Item {
   readonly property string pluginId: "xyzlab.alienware"
   readonly property string home: Quickshell.env("HOME") || ""
   readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || home + "/.local/state") + "/omarchy/alienware"
+  readonly property string pluginDir: Model.pluginDir(Quickshell.env("XDG_CONFIG_HOME"), home, pluginId)
+  readonly property string installScript: pluginDir ? pluginDir + "/scripts/install-helper.sh" : ""
   readonly property string statePath: stateDir + "/state.json"
 
   readonly property var defaults: manifest && manifest.barWidget && manifest.barWidget.defaults ? manifest.barWidget.defaults : ({})
@@ -188,6 +190,24 @@ Item {
   }
 
   function scheduleSave() { saveTimer.restart() }
+
+  function installHelper() {
+    if (installProc.running) return reportAction(false, "The installer is already open")
+    var argv = Model.installArgv(installScript)
+    if (!argv.length) return reportAction(false, "Cannot find the plugin directory")
+    installProc.command = argv
+    installProc.running = true
+    return reportAction(true, "Opening a terminal")
+  }
+
+  Process {
+    id: installProc
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.reportAction(false, "No terminal found, run packaging/bin/makepkg -si by hand")
+      }
+    }
+  }
 
   function reportAction(ok, text) {
     actionError = ok !== true

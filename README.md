@@ -25,6 +25,9 @@ makepkg -si
 sudo systemctl enable --now alienwarectl.service
 ```
 
+Or open the panel and press "Install the helper", which runs the same commands in a terminal so
+you can see them before they run.
+
 That installs the prebuilt binary from the latest release. It needs no Go toolchain and takes
 seconds. To build from source instead, run `makepkg -si` in `packaging/` rather than
 `packaging/bin/`. Both install the same eight files and either can be removed with `pacman -Rns`.

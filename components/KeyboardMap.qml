@@ -29,7 +29,7 @@ Item {
   readonly property real keyGap: Style.space(3)
   readonly property real mediaWidth: Style.space(46)
   readonly property int rowCount: Model.toList(root.rows).length
-  readonly property real powerSize: root.keyHeight * 2.1
+  readonly property real powerSize: root.keyHeight
   readonly property real topRowHeight: root.powerSize + root.rowGap
   readonly property int topRowKeys: 16
   readonly property real topKeyWidth: (root.width - root.keyGap * (root.topRowKeys - 1)) / root.topRowKeys

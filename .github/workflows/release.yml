@@ -11,8 +11,28 @@ jobs:
   build:
     name: Build and publish
     runs-on: ubuntu-latest
+    env:
+      HAS_MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check the tag matches every version string
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest=$(python3 -c "import json;print(json.load(open('manifest.json'))['version'])")
+          pkg=$(python3 -c "import json;print(json.load(open('package.json'))['version'])")
+          helper=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' helper/internal/cli/cli.go)
+          makepkg=$(sed -n 's/^pkgver=//p' packaging/PKGBUILD)
+          fail=0
+          for pair in "manifest.json:$manifest" "package.json:$pkg" "cli.go:$helper" "packaging/PKGBUILD:$makepkg"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            if [ "$value" != "$tag" ]; then
+              echo "$name says $value but the tag is $tag"
+              fail=1
+            fi
+          done
+          test "$fail" -eq 0
 
       - uses: actions/setup-go@v5
         with:
@@ -70,6 +90,9 @@ jobs:
           sha256sum "${dir}.tar.gz" alienwarectl > sha256sums.txt
           cat sha256sums.txt
 
+      - name: Check a release note exists
+        run: test -f "release-notes/${GITHUB_REF_NAME}.md"
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -87,3 +110,28 @@ jobs:
               --generate-notes \
               alienwarectl "alienwarectl-${version}-x86_64.tar.gz" sha256sums.txt
           fi
+
+      - name: Print the line for packaging/bin/PKGBUILD
+        run: |
+          version="${{ steps.version.outputs.value }}"
+          sum=$(sha256sum "alienwarectl-${version}-x86_64.tar.gz" | cut -d" " -f1)
+          echo "Update packaging/bin/PKGBUILD and push that commit:"
+          echo "  pkgver=${version}"
+          echo "  sha256sums=('${sum}')"
+
+      - name: Open the marketplace verification issue
+        if: env.HAS_MARKETPLACE_TOKEN == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
+        run: |
+          sha=$(git rev-parse "${GITHUB_REF_NAME}^{commit}")
+          body=$(printf '%s\n' \
+            "### Verification action" "" "Verify and publish a newer upstream commit" "" \
+            "### Plugin ID" "" "xyzlab.alienware" "" \
+            "### Repository URL" "" "https://github.com/${GITHUB_REPOSITORY}" "" \
+            "### Target commit" "" "$sha" "" \
+            "### Verification acknowledgment" "" \
+            "- [x] I understand that only the exact target commit can become a verified marketplace snapshot and that verification is not a security audit." "" \
+            "### Standard installation acknowledgment" "" \
+            "- [ ] I confirm that this listed root plugin supports the standard Omarchy installation path and does not require manual setup.")
+          gh issue create -R omacom/omarchy-plugin-marketplace --title "[Verify]: Alienware ${GITHUB_REF_NAME}" --body "$body"

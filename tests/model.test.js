@@ -1601,3 +1601,35 @@ test("a busy controller renders as retryable rather than as a missing device", (
     assert.ok(result.error.indexOf("busy") >= 0, result.error)
   }
 })
+
+test("pluginDir prefers XDG_CONFIG_HOME and falls back to HOME", function() {
+  assert.equal(Model.pluginDir("/cfg", "/home/x", "xyzlab.alienware"), "/cfg/omarchy/plugins/xyzlab.alienware")
+  assert.equal(Model.pluginDir("", "/home/x", "xyzlab.alienware"), "/home/x/.config/omarchy/plugins/xyzlab.alienware")
+  assert.equal(Model.pluginDir("/cfg/", "/home/x", "xyzlab.alienware"), "/cfg/omarchy/plugins/xyzlab.alienware")
+})
+
+test("pluginDir is empty when it cannot be resolved", function() {
+  assert.equal(Model.pluginDir("", "", "xyzlab.alienware"), "")
+  assert.equal(Model.pluginDir("/cfg", "/home/x", ""), "")
+  assert.equal(Model.pluginDir(null, null, null), "")
+})
+
+test("installArgv runs the script through a login shell", function() {
+  var argv = Model.installArgv("/p/scripts/install-helper.sh")
+  assert.equal(argv[0], "bash")
+  assert.equal(argv[1], "-lc")
+  assert.equal(argv[3], "alienware-install")
+  assert.equal(argv[4], "/p/scripts/install-helper.sh")
+})
+
+test("installArgv tries omarchy first and honours TERMINAL", function() {
+  var script = Model.installArgv("/p/s.sh")[2]
+  assert.ok(script.indexOf("omarchy-launch-terminal") < script.indexOf("ghostty"))
+  assert.ok(script.indexOf('"$TERMINAL"') !== -1)
+  assert.ok(script.indexOf("exit 1") !== -1)
+})
+
+test("installArgv is empty without a script path", function() {
+  assert.deepEqual(Model.installArgv(""), [])
+  assert.deepEqual(Model.installArgv(null), [])
+})
