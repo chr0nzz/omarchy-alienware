@@ -86,9 +86,9 @@ var KEYBOARD_ROWS = [
     kbKey("home", "home", 1, 13), kbKey("end", "end", 1, 14), kbKey("del", "⌦", 1, 15)
   ],
   [
-    kbKey("grave", "`", 1, 16),
-    kbKey("1", "1", 1, 17), kbKey("2", "2", 1, 18), kbKey("3", "3", 1, 19), kbKey("4", "4", 1, 20),
-    kbKey("5", "5", 1, 21), kbKey("6", "6", 1, 22), kbKey("7", "7", 1, 23), kbKey("8", "8", 1, 28),
+    kbKey("grave", "`", 1, 20),
+    kbKey("1", "1", 1, 21), kbKey("2", "2", 1, 22), kbKey("3", "3", 1, 23), kbKey("4", "4", 1, 24),
+    kbKey("5", "5", 1, 25), kbKey("6", "6", 1, 26), kbKey("7", "7", 1, 27), kbKey("8", "8", 1, 28),
     kbKey("9", "9", 1, 29), kbKey("0", "0", 1, 30), kbKey("minus", "-", 1, 31), kbKey("equals", "=", 1, 32),
     kbKey("backspace", "⌫", 2, 34)
   ],
@@ -120,10 +120,10 @@ var KEYBOARD_ROWS = [
 ]
 
 var KEYBOARD_MEDIA_COLUMN = [
-  kbKey("micmute", "󰍭", 1, 24),
-  kbKey("volmute", "󰖁", 1, 25),
-  kbKey("volup", "󰕾", 1, 26),
-  kbKey("voldown", "󰖀", 1, 27)
+  kbKey("micmute", "󰍭", 1, 19),
+  kbKey("volmute", "󰖁", 1, 16),
+  kbKey("volup", "󰕾", 1, 18),
+  kbKey("voldown", "󰖀", 1, 17)
 ]
 
 function toList(value) {

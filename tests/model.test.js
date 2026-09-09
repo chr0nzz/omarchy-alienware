@@ -1117,8 +1117,8 @@ test("colorToHex reads the shell theme colour in every form it arrives", () => {
 test("the confirmed key indices match the machine that was probed", () => {
   const want = {
     esc: 0, f1: 1, f12: 12, home: 13, end: 14, del: 15,
-    grave: 16, "1": 17, "7": 23,
-    micmute: 24, volmute: 25, volup: 26, voldown: 27,
+    grave: 20, "1": 21, "7": 27,
+    micmute: 19, volmute: 16, volup: 18, voldown: 17,
     "8": 28, "0": 30, minus: 31, equals: 32, backspace: 34,
     tab: 40, q: 42, i: 49, o: 50, rbracket: 53, backslash: 55,
     caps: 60, a: 62, k: 69, l: 70, quote: 72, enter: 74,
@@ -1129,6 +1129,24 @@ test("the confirmed key indices match the machine that was probed", () => {
   }
   for (const id of Object.keys(want)) {
     assert.equal(Model.keyboardKeyById(id).index, want[id], id)
+  }
+})
+
+test("the number row runs contiguously from grave to equals with no gap", () => {
+  const row = ["grave", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "minus", "equals"]
+  for (let i = 0; i < row.length; i++) {
+    assert.equal(Model.keyboardKeyById(row[i]).index, 20 + i, row[i])
+  }
+})
+
+test("the media keys sit below the number row, not spliced into it", () => {
+  const media = { volmute: 16, voldown: 17, volup: 18, micmute: 19 }
+  for (const id of Object.keys(media)) {
+    assert.equal(Model.keyboardKeyById(id).index, media[id], id)
+  }
+  const numbers = ["grave", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "minus", "equals"]
+  for (const id of numbers) {
+    assert.ok(Model.keyboardKeyById(id).index > 19, id + " must not land in the media block")
   }
 })
 
