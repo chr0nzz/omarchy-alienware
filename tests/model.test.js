@@ -1159,6 +1159,28 @@ test("themeKeyColorMap returns an empty map for an unusable colour", () => {
   assert.deepEqual(Model.themeKeyColorMap(null), {})
 })
 
+test("parseMutePair keeps the two sides independent", () => {
+  const t = "SINK Volume: 0.80\nSOURCE Volume: 1.00 [MUTED]\n"
+  assert.deepEqual(Model.parseMutePair(t), { sinkMuted: false, sourceMuted: true, ok: true })
+  const u = "SINK Volume: 0.80 [MUTED]\nSOURCE Volume: 1.00\n"
+  assert.deepEqual(Model.parseMutePair(u), { sinkMuted: true, sourceMuted: false, ok: true })
+})
+
+test("parseMutePair takes the last reading so a stale buffer cannot latch a key red", () => {
+  const accumulated = [
+    "SINK Volume: 0.80 [MUTED]", "SOURCE Volume: 1.00",
+    "SINK Volume: 0.80", "SOURCE Volume: 1.00 [MUTED]",
+    "SINK Volume: 0.80", "SOURCE Volume: 1.00"
+  ].join("\n")
+  assert.deepEqual(Model.parseMutePair(accumulated), { sinkMuted: false, sourceMuted: false, ok: true })
+})
+
+test("parseMutePair reports not ok on unusable output instead of guessing", () => {
+  assert.equal(Model.parseMutePair("").ok, false)
+  assert.equal(Model.parseMutePair("nonsense").ok, false)
+  assert.equal(Model.parseMutePair(null).ok, false)
+})
+
 test("parseMuteState reads the wpctl volume line in both states", () => {
   assert.deepEqual(Model.parseMuteState("Volume: 0.80"), { volume: 0.8, muted: false })
   assert.deepEqual(Model.parseMuteState("Volume: 1.00 [MUTED]"), { volume: 1, muted: true })

@@ -502,8 +502,20 @@ function isAudioEvent(line) {
   return s.indexOf(" on sink") >= 0 || s.indexOf(" on source") >= 0
 }
 
-function cmdMuteQuery(target) {
-  return ["wpctl", "get-volume", String(target || "")]
+function parseMutePair(text) {
+  var lines = String(text === undefined || text === null ? "" : text).split("\n")
+  var out = { sinkMuted: false, sourceMuted: false, ok: false }
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i]
+    if (line.indexOf("SINK ") === 0) {
+      out.sinkMuted = line.indexOf("[MUTED]") >= 0
+      out.ok = true
+    } else if (line.indexOf("SOURCE ") === 0) {
+      out.sourceMuted = line.indexOf("[MUTED]") >= 0
+      out.ok = true
+    }
+  }
+  return out
 }
 
 function applyMuteOverlay(map, opts) {

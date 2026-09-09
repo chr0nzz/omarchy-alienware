@@ -291,9 +291,21 @@ Item {
   }
 
   function readMuteState() {
-    if (sinkMuteProc.running || sourceMuteProc.running) { muteDebounce.restart(); return }
-    sinkMuteProc.command = Model.cmdMuteQuery("@DEFAULT_AUDIO_SINK@")
-    sinkMuteProc.running = true
+    if (muteProc.running) { muteDebounce.restart(); return }
+    muteProc.running = true
+  }
+
+  Process {
+    id: muteProc
+    command: ["bash", "-c", "printf 'SINK '; wpctl get-volume @DEFAULT_AUDIO_SINK@; printf 'SOURCE '; wpctl get-volume @DEFAULT_AUDIO_SOURCE@"]
+    stdout: StdioCollector { id: muteOut; waitForEnd: true }
+    onExited: function(exitCode) {
+      var st = Model.parseMutePair(muteOut.text)
+      if (!st.ok) return
+      root.sinkMuted = st.sinkMuted
+      root.sourceMuted = st.sourceMuted
+      root.pushKeyboard("Mute")
+    }
   }
 
   Process {
@@ -318,27 +330,6 @@ Item {
     interval: 400
     repeat: false
     onTriggered: root.readMuteState()
-  }
-
-  Process {
-    id: sinkMuteProc
-    stdout: StdioCollector { id: sinkMuteOut; waitForEnd: true }
-    onExited: function(exitCode) {
-      var st = Model.parseMuteState(sinkMuteOut.text)
-      if (st) root.sinkMuted = st.muted
-      sourceMuteProc.command = Model.cmdMuteQuery("@DEFAULT_AUDIO_SOURCE@")
-      sourceMuteProc.running = true
-    }
-  }
-
-  Process {
-    id: sourceMuteProc
-    stdout: StdioCollector { id: sourceMuteOut; waitForEnd: true }
-    onExited: function(exitCode) {
-      var st = Model.parseMuteState(sourceMuteOut.text)
-      if (st) root.sourceMuted = st.muted
-      root.pushKeyboard("Mute")
-    }
   }
 
   function elcState() {
