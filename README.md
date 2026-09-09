@@ -100,6 +100,10 @@ plugin cannot hold the same node at once.
 The wire order follows the keyboard matrix, not the visual layout, and it is full of holes. It was
 established by lighting single indices and observing the machine. Do not infer it.
 
+The full table lives in [`KEYMAP.txt`](KEYMAP.txt), which is the source `Model.js` is derived from.
+A test parses both and fails if they disagree, so the two cannot drift apart. To verify or extend
+the map, run `alienwarectl kbd identify <idx>`, look at the keyboard, and record what lit.
+
 | indices | keys |
 | --- | --- |
 | 0-15 | esc, f1 to f12, home, end, del |
@@ -277,11 +281,10 @@ Two things neither step removes, both outside any package:
 | path | what it is |
 | --- | --- |
 | `~/.local/state/omarchy/alienware/state.json` | saved colours, fan curves and settings |
-| `~/.cache/omarchy-alienware/` | including `KEYMAP.txt` |
+| `~/.cache/omarchy-alienware/` | scratch working copies, safe to delete |
 
-`KEYMAP.txt` is the measured wire index map. It was established by lighting single indices and
-looking at the machine, it cannot be derived from the layout, and it is worth keeping even if the
-plugin goes.
+The measured wire index map is tracked in the repo as `KEYMAP.txt`, so nothing irreplaceable is
+lost by deleting either of these.
 
 ## Keybind
 

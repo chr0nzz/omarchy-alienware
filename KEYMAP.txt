@@ -1,0 +1,112 @@
+Alienware x15 R2 keyboard map, AlienFX APIv5 on /dev/hidraw1
+
+Every index below was confirmed by lighting it and observing the machine. This file is the
+source the key table in Model.js is derived from. If you change one, change the other.
+
+The wire order follows the keyboard matrix, not the visual layout. It cannot be inferred from
+the layout and several attempts to do so were wrong. To verify or extend it, run
+"alienwarectl kbd identify <idx>", look at the keyboard, and record what lit.
+
+Corrected 2026-09-08. The media keys are NOT spliced into the middle of the number
+row. They occupy 16-19, below it. The number row is contiguous, grave at 20 through
+equals at 32. The earlier reading put grave at 16 and the media block at 24-27, which
+mislit thirteen keys and only looked right at 8, 9, 0, minus and equals because the
+invented gap closed up again by index 28.
+
+index  key
+    0  esc
+    1  f1
+    2  f2
+    3  f3
+    4  f4
+    5  f5
+    6  f6
+    7  f7
+    8  f8
+    9  f9
+   10  f10
+   11  f11
+   12  f12
+   13  home
+   14  end
+   15  del
+   16  volmute
+   17  voldown
+   18  volup
+   19  micmute
+   20  grave
+   21  1
+   22  2
+   23  3
+   24  4
+   25  5
+   26  6
+   27  7
+   28  8
+   29  9
+   30  0
+   31  minus
+   32  equals
+   34  backspace, with 35 as its second led
+   40  tab
+   42  q
+   43  w
+   44  e
+   45  r
+   46  t
+   47  y
+   48  u
+   49  i
+   50  o
+   51  p
+   52  lbracket
+   53  rbracket
+   55  backslash
+   60  caps, with 61 as its second led
+   62  a
+   63  s
+   64  d
+   65  f
+   66  g
+   67  h
+   68  j
+   69  k
+   70  l
+   71  semicolon
+   72  quote
+   74  enter
+   80  lshift, with 81 as its second led
+   83  z
+   84  x
+   85  c
+   86  v
+   87  b
+   88  n
+   89  m
+   90  comma
+   91  period
+   92  slash
+   94  rshift
+  100  lctrl
+  101  fn
+  102  lsuper, with 103 as its second led
+  104  lalt
+  109  rsuper
+  111  ralt
+  112  rctrl
+  114  pageup
+  133  left
+  134  pagedown
+  135  right
+
+space has no LED.
+88 leds across 84 keys.
+
+Sweep completed 2026-09-09 with "alienwarectl kbd identify". The four WIDE keys carry TWO
+leds each: backspace 34+35, caps 60+61, lshift 80+81, lsuper 102+103. Painting only the
+primary lit half the key. Every other wide key, tab, backslash, enter, rshift, ctrl and
+alt, is single led, checked by lighting their neighbours.
+
+The remaining 48 indices are genuine matrix holes. There is NO separate addressable zone
+for the mute indicators and the caps lock dot is not in the matrix either. Both are
+firmware driven and cannot be written over AlienFX.
