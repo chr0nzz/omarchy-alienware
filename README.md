@@ -78,5 +78,5 @@ o.bind("SUPER SHIFT", "A", "Alienware", "omarchy-shell shell summon xyzlab.alien
 | [Hardware](docs/hardware.md) | The two lighting controllers, the region map, the privilege model |
 | [Behaviour](docs/behaviour.md) | Suspend and resume, mute indicator, thermal profiles, G-Mode |
 | [CLI](docs/cli.md) | Every `alienwarectl` verb |
-| [Key map](KEYMAP.txt) | The measured keyboard index map |
+| [Key map](docs/KEYMAP.txt) | The measured keyboard index map |
 | [Development](docs/development.md) | Tests and releases |

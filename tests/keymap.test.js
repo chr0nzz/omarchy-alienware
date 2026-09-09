@@ -5,7 +5,7 @@ const path = require("node:path")
 const { Model } = require("./load.js")
 
 function parseKeymap() {
-  const text = fs.readFileSync(path.join(__dirname, "..", "KEYMAP.txt"), "utf8")
+  const text = fs.readFileSync(path.join(__dirname, "..", "docs", "KEYMAP.txt"), "utf8")
   const out = {}
   for (const line of text.split("\n")) {
     const m = line.match(/^\s*(\d+)\s\s+([a-z0-9]+)(,\s*with\s+(\d+)\s+as its second led)?\s*$/)
