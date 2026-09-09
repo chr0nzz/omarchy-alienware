@@ -1,5 +1,5 @@
 pkgname=omarchy-alienware
-pkgver=0.3.2
+pkgver=0.3.3
 pkgrel=1
 pkgdesc='Alienware fan, thermal, power and RGB control for Omarchy'
 arch=('x86_64')
