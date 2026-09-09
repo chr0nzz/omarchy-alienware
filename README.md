@@ -219,6 +219,54 @@ Check what is actually running with `alienwarectl version` rather than assuming 
 The plugin must be a real directory. The shell's inotify watcher does not follow symlinks, which
 is why the package does not ship the plugin itself.
 
+## Uninstall
+
+Blank the lighting FIRST. Removing the package does not turn the leds off. Both controllers hold
+whatever frame was last written to them, so the keyboard and the chassis stay lit at their current
+colours until something else writes to them or the machine power cycles. Afterwards the binary is
+gone and the uaccess ACL with it, so there is nothing left to blank them with.
+
+```
+alienwarectl kbd off
+alienwarectl rgb off
+```
+
+Then the helper:
+
+```
+sudo systemctl disable --now alienwarectl.service
+sudo pacman -Rns omarchy-alienware omarchy-alienware-debug
+```
+
+That removes the binary, the systemd unit, the D-Bus service and policy, the polkit action and
+rules, and the `71-alienware-aw-elc.rules` udev rule. The package declares no backup files, so
+nothing is left behind as `.pacsave`. The udev rule keeps applying to the already enumerated device
+until a reboot, or:
+
+```
+sudo udevadm control --reload && sudo udevadm trigger
+```
+
+Then the plugin:
+
+```
+omarchy plugin remove xyzlab.alienware
+```
+
+If you would rather do it by hand, delete `~/.config/omarchy/plugins/xyzlab.alienware`, drop the
+widget from `~/.config/omarchy/shell.json`, and run `omarchy restart shell`.
+
+Two things neither step removes, both outside any package:
+
+| path | what it is |
+| --- | --- |
+| `~/.local/state/omarchy/alienware/state.json` | saved colours, fan curves and settings |
+| `~/.cache/omarchy-alienware/` | including `KEYMAP.txt` |
+
+`KEYMAP.txt` is the measured wire index map. It was established by lighting single indices and
+looking at the machine, it cannot be derived from the layout, and it is worth keeping even if the
+plugin goes.
+
 ## Keybind
 
 Omarchy 4 uses a Lua Hyprland config, and `hyprctl keyword` is rejected by the non-legacy parser.
