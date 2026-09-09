@@ -530,6 +530,46 @@ function parseMutePair(text) {
   return out
 }
 
+function parseBatteryState(text) {
+  var lines = String(text === undefined || text === null ? "" : text).split("\n")
+  var out = { percent: -1, charging: false, ok: false }
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i]
+    if (line.indexOf("CAP ") === 0) {
+      var n = toNumber(line.substring(4).replace(/[^0-9.]/g, ""), -1)
+      if (n >= 0) { out.percent = n; out.ok = true }
+    } else if (line.indexOf("ST ") === 0) {
+      var st = line.substring(3).trim().toLowerCase()
+      if (st !== "") {
+        out.charging = st === "charging" || st === "full"
+        out.ok = true
+      }
+    }
+  }
+  return out
+}
+
+function batteryColor(state, colors) {
+  var st = isObject(state) ? state : {}
+  var c = isObject(colors) ? colors : {}
+  if (st.ok !== true || toNumber(st.percent, -1) < 0) return ""
+  if (toNumber(st.percent, 100) < 10) return normalizeHex(c.low) || "FF0000"
+  if (st.charging === true) return normalizeHex(c.charging) || "00FF66"
+  return normalizeHex(c.discharging) || "FF8800"
+}
+
+function applyBatteryOverlay(map, opts) {
+  var o = isObject(opts) ? opts : {}
+  var base = isObject(map) ? map : {}
+  if (o.enabled !== true || o.lightsOn === false) return base
+  var hex = batteryColor(o.battery, o.colors)
+  if (!hex) return base
+  var out = {}
+  for (var k in base) out[k] = base[k]
+  out["power"] = hex
+  return out
+}
+
 function applyMuteOverlay(map, opts) {
   var o = isObject(opts) ? opts : {}
   var base = isObject(map) ? map : {}

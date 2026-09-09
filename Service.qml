@@ -94,7 +94,7 @@ Item {
   property var kbd: Model.normalizeKbdStatus(null)
   property bool kbdLoaded: false
   property string kbdError: ""
-  readonly property bool kbdPresent: kbd.present === true && kbdError === ""
+  readonly property bool kbdPresent: kbd.present === true
 
   property var keyColors: ({})
   property var keyOn: ({})
@@ -119,6 +119,8 @@ Item {
   property string muteColor: "FF0000"
   property bool sinkMuted: false
   property bool sourceMuted: false
+  property bool batterySync: true
+  property var battery: ({ percent: -1, charging: false, ok: false })
   property int profileRestoreTries: 0
   property double resumeAt: 0
   property bool dirReady: false
@@ -270,6 +272,47 @@ Item {
     curveGpu = status.curve.gpu
     curveAdopted = true
     scheduleSave()
+  }
+
+  function rgbOverlay(map) {
+    return Model.applyBatteryOverlay(map, {
+      enabled: root.batterySync,
+      lightsOn: root.lightsOn,
+      battery: root.battery
+    })
+  }
+
+  function pushChassis(label) {
+    var map = root.rgbOverlay(Model.effectiveRegionColors(regionColors, regionOn))
+    if (!Model.hasAnyKey(map)) return false
+    enqueue(Model.cmdRgbSetMap(map), String(label || "Colour"))
+    return true
+  }
+
+  function readBattery() {
+    if (batteryProc.running) return
+    batteryProc.running = true
+  }
+
+  Process {
+    id: batteryProc
+    command: ["bash", "-c", "printf 'CAP '; cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1; printf 'ST '; cat /sys/class/power_supply/BAT*/status 2>/dev/null | head -1"]
+    stdout: StdioCollector { id: batteryOut; waitForEnd: true }
+    onExited: function(exitCode) {
+      var st = Model.parseBatteryState(batteryOut.text)
+      if (!st.ok) return
+      var was = Model.batteryColor(root.battery)
+      root.battery = st
+      if (Model.batteryColor(st) !== was) root.pushChassis("Battery")
+    }
+  }
+
+  Timer {
+    interval: 20000
+    running: root.batterySync
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: root.readBattery()
   }
 
   function kbdOverlay(map) {
@@ -639,7 +682,7 @@ Item {
     regionColors = allRegionsColorMap(clean)
     color = clean
     lightsOn = true
-    enqueue(Model.cmdRgbSetMap(Model.effectiveRegionColors(regionColors, regionOn)), "Colour")
+    enqueue(Model.cmdRgbSetMap(root.rgbOverlay(Model.effectiveRegionColors(regionColors, regionOn))), "Colour")
     scheduleSave()
     return true
   }
@@ -669,7 +712,7 @@ Item {
     regionOn = nextOn
     color = clean
     lightsOn = true
-    enqueue(Model.cmdRgbSetMap(Model.effectiveRegionColors(nextColors, nextOn)), "Colour")
+    enqueue(Model.cmdRgbSetMap(root.rgbOverlay(Model.effectiveRegionColors(nextColors, nextOn))), "Colour")
     scheduleSave()
     return true
   }
@@ -695,7 +738,7 @@ Item {
     regionColors = nextColors
     regionOn = nextOn
     if (on === true) lightsOn = true
-    enqueue(Model.cmdRgbSetMap(Model.regionPowerPayload(nextColors, nextOn, list, lightsOn)), on === true ? "Region on" : "Region off")
+    enqueue(Model.cmdRgbSetMap(root.rgbOverlay(Model.regionPowerPayload(nextColors, nextOn, list, lightsOn))), on === true ? "Region on" : "Region off")
     scheduleSave()
     return true
   }
@@ -734,7 +777,7 @@ Item {
     lightsOn = true
     enqueue(Model.cmdRgbBrightness(brightness), "Brightness")
     var map = Model.effectiveRegionColors(regionColors, regionOn)
-    if (Model.hasAnyKey(map)) enqueue(Model.cmdRgbSetMap(map), "Colour")
+    if (Model.hasAnyKey(map)) enqueue(Model.cmdRgbSetMap(root.rgbOverlay(map)), "Colour")
     if (kbdPresent) {
       var keyMap = Model.effectiveKeyColors(keyColors, keyOn)
       if (Model.hasAnyKey(keyMap)) enqueue(Model.cmdKbdSetMap(root.kbdOverlay(keyMap)), "Keyboard colour")
@@ -748,15 +791,9 @@ Item {
   }
 
   function restoreSavedLights() {
-    var steps = Model.restoreSequence({
-      lightsOn: lightsOn,
-      regions: regionColors,
-      regionsOn: regionOn,
-      brightness: brightness
-    })
-    if (!steps.length) return false
-    for (var i = 0; i < steps.length; i++) enqueue(steps[i].argv, steps[i].label)
-    return true
+    if (lightsOn !== true) return false
+    enqueue(Model.cmdRgbBrightness(brightness), "Brightness")
+    return pushChassis("Colour")
   }
 
   function identifyRegion(id) {
@@ -832,14 +869,8 @@ Item {
   }
 
   function restoreSavedKeyboard() {
-    var steps = Model.keyboardRestoreSequence({
-      lightsOn: lightsOn,
-      keys: keyColors,
-      keysOn: keyOn
-    })
-    if (!steps.length) return false
-    for (var i = 0; i < steps.length; i++) enqueue(steps[i].argv, steps[i].label)
-    return true
+    if (lightsOn !== true) return false
+    return pushKeyboard("Keyboard colour")
   }
 
   function setThemeSync(on) {
@@ -857,7 +888,7 @@ Item {
     regionColors = allRegionsColorMap(hex)
     color = hex
     lightsOn = true
-    enqueue(Model.cmdRgbSetMap(Model.effectiveRegionColors(regionColors, regionOn)), "Theme colour")
+    enqueue(Model.cmdRgbSetMap(root.rgbOverlay(Model.effectiveRegionColors(regionColors, regionOn))), "Theme colour")
     keyColors = Model.themeKeyColorMap(hex)
     pushKeyboard("Theme colour")
     scheduleSave()
@@ -927,6 +958,7 @@ Item {
     lastResult = null
     rearmRestore()
     if (muteSync) readMuteState()
+    if (batterySync) readBattery()
     poll()
     refreshRgb()
     refreshKbd()

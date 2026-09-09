@@ -1159,6 +1159,39 @@ test("themeKeyColorMap returns an empty map for an unusable colour", () => {
   assert.deepEqual(Model.themeKeyColorMap(null), {})
 })
 
+test("parseBatteryState reads capacity and charging status", () => {
+  assert.deepEqual(Model.parseBatteryState("CAP 64\nST Charging\n"), { percent: 64, charging: true, ok: true })
+  assert.deepEqual(Model.parseBatteryState("CAP 8\nST Discharging\n"), { percent: 8, charging: false, ok: true })
+  assert.equal(Model.parseBatteryState("CAP 100\nST Full\n").charging, true)
+  assert.equal(Model.parseBatteryState("").ok, false)
+  assert.equal(Model.parseBatteryState(null).ok, false)
+})
+
+test("batteryColor is red below ten percent whether charging or not", () => {
+  assert.equal(Model.batteryColor({ percent: 9, charging: false, ok: true }), "FF0000")
+  assert.equal(Model.batteryColor({ percent: 9, charging: true, ok: true }), "FF0000")
+  assert.equal(Model.batteryColor({ percent: 10, charging: true, ok: true }), "00FF66")
+  assert.equal(Model.batteryColor({ percent: 10, charging: false, ok: true }), "FF8800")
+})
+
+test("batteryColor gives nothing when the reading is unusable", () => {
+  assert.equal(Model.batteryColor({ ok: false }), "")
+  assert.equal(Model.batteryColor({ percent: -1, ok: true }), "")
+  assert.equal(Model.batteryColor(null), "")
+})
+
+test("applyBatteryOverlay only touches the power region and never mutates", () => {
+  const base = { power: "111111", logo: "222222" }
+  const out = Model.applyBatteryOverlay(base, {
+    enabled: true, lightsOn: true, battery: { percent: 5, charging: false, ok: true }
+  })
+  assert.equal(base.power, "111111")
+  assert.equal(out.power, "FF0000")
+  assert.equal(out.logo, "222222")
+  assert.deepEqual(Model.applyBatteryOverlay(base, { enabled: false }), base)
+  assert.deepEqual(Model.applyBatteryOverlay(base, { enabled: true, lightsOn: false }), base)
+})
+
 test("parseMutePair keeps the two sides independent", () => {
   const t = "SINK Volume: 0.80\nSOURCE Volume: 1.00 [MUTED]\n"
   assert.deepEqual(Model.parseMutePair(t), { sinkMuted: false, sourceMuted: true, ok: true })

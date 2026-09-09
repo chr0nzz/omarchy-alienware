@@ -17,18 +17,52 @@ Item {
   property color accent: Color.accent
   property string fontFamily: Style.font.family
 
+  property color powerColor: Qt.darker(Color.foreground, 1.5)
+  property string powerTooltip: ""
+
   signal toggleRequested(string keyId)
   signal dragSelectRequested(var keyIds)
+  signal powerClicked()
 
   readonly property real keyHeight: Style.space(28)
   readonly property real rowGap: Style.space(4)
   readonly property real keyGap: Style.space(3)
   readonly property real mediaWidth: Style.space(46)
   readonly property int rowCount: Model.toList(root.rows).length
+  readonly property real powerSize: root.keyHeight * 2.1
+  readonly property real topRowHeight: root.powerSize + root.rowGap
+  readonly property int topRowKeys: 16
+  readonly property real topKeyWidth: (root.width - root.keyGap * (root.topRowKeys - 1)) / root.topRowKeys
+  readonly property real endKeyX: (root.topKeyWidth + root.keyGap) * 14
 
   visible: root.present
   implicitWidth: parent ? parent.width : 0
-  implicitHeight: root.present ? root.rowCount * root.keyHeight + Math.max(0, root.rowCount - 1) * root.rowGap : 0
+  implicitHeight: root.present ? root.topRowHeight + root.rowCount * root.keyHeight + Math.max(0, root.rowCount - 1) * root.rowGap : 0
+
+  Item {
+    id: powerTile
+    x: root.endKeyX + (root.topKeyWidth - root.powerSize) / 2
+    y: 0
+    width: root.powerSize
+    height: root.powerSize
+
+    Text {
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: "\uDB82\uDC9A"
+      color: root.powerColor
+      font.family: root.fontFamily
+      font.pixelSize: root.powerSize * 0.82
+      horizontalAlignment: Text.AlignHCenter
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: root.powerClicked()
+    }
+  }
 
   function isSelected(id) {
     return Model.toList(root.selection).indexOf(id) !== -1
@@ -71,6 +105,7 @@ Item {
     id: rowsColumn
     anchors.left: parent.left
     anchors.top: parent.top
+    anchors.topMargin: root.topRowHeight
     width: parent.width
     spacing: root.rowGap
 
@@ -144,7 +179,7 @@ Item {
   Column {
     id: mediaColumnItem
     x: rowsColumn.width - root.mediaWidth
-    y: root.keyHeight + root.rowGap
+    y: root.topRowHeight + root.keyHeight + root.rowGap
     width: root.mediaWidth
     spacing: root.rowGap
 
