@@ -46,8 +46,8 @@ mapped from the real, sparse hardware zone ids:
 ## Keyboard
 
 The keyboard is a separate Darfon controller (`0d62:babc`), speaking AlienFX APIv5 over
-`/dev/hidraw1` as 64 byte HID feature reports on feature id `0xcc`. It exposes 136 individually
-addressable keys.
+`/dev/hidraw1` as 64 byte HID feature reports on feature id `0xcc`. The wire index space is 0 to
+135, but most of it is holes: this layout has **88 leds across 84 keys**. See the key map below.
 
 This node has no udev rule and stays root-only, on purpose: it is the same hidraw node the kernel
 uses as the keyboard's input interface, so granting the logged-in session an ACL on it would let
@@ -67,11 +67,48 @@ password, it is not an action they asked for.
 | `kbd status` | Report presence and key count, `present:false` cleanly if the controller is absent |
 | `kbd set-map <idx=RRGGBB,...>` | Light named keys in one transaction |
 | `kbd set-all <RRGGBB>` | Light every key |
+| `kbd identify <idx>` | Light exactly one wire index white and blank the rest |
 | `kbd off` | Blank every key |
 
+`kbd identify` exists because the index map cannot be reasoned about, only measured. Use it to
+verify or extend the map, one index at a time, and trust what lights over what looks obvious.
+
 Every write, whatever its shape, is applied as a single open-device transaction. This controller
-family wedges under write pressure, so the daemon never re-opens the device per key and serialises
-keyboard calls against each other.
+family wedges under write pressure, so the daemon holds the device open for its lifetime and
+reopens only after an error, rather than opening and closing per call. It also serialises keyboard
+calls against each other, and `hidraw.Open` takes an advisory `flock` so the CLI, the daemon and the
+plugin cannot hold the same node at once.
+
+## Key map
+
+The wire order follows the keyboard matrix, not the visual layout, and it is full of holes. It was
+established by lighting single indices and observing the machine. Do not infer it.
+
+| indices | keys |
+| --- | --- |
+| 0-15 | esc, f1 to f12, home, end, del |
+| 16-19 | volmute, voldown, volup, micmute |
+| 20-32 | grave, 1 to 0, minus, equals, contiguous |
+| 34-135 | the rest, sparsely, see the table in the source |
+
+The media keys sit BELOW the number row, not spliced into the middle of it, and the number row is
+contiguous.
+
+**Four wide keys carry two leds each.** Painting only the primary lights half the key:
+
+| key | indices |
+| --- | --- |
+| backspace | 34 + 35 |
+| caps | 60 + 61 |
+| lshift | 80 + 81 |
+| lsuper | 102 + 103 |
+
+Every other wide key, tab, backslash, enter, rshift, ctrl and alt, is a single led. `kbKey` carries
+an `indices` array and `cmdKbdSetMap` emits every led for a key, so one paint covers the whole key.
+
+The space bar has no led. The remaining 48 indices are matrix holes. There is no addressable zone
+for the mute indicators and the caps lock dot is not in the matrix either: both are firmware driven
+off HID state and cannot be written over AlienFX.
 
 ## Mute indicator
 
@@ -103,7 +140,9 @@ getfacl /dev/hidraw0 | grep "$USER"
 If the logged-in user has no entry there, the udev rule is missing or does not match this
 controller, and every RGB command will fail.
 
-**The AW-ELC controller (187c:0550) wedges if two processes open its HID node at once.** The
+**The AW-ELC controller (187c:0550) wedges if two processes open its HID node at once.** Every
+`hidraw.Open` now takes an advisory `flock`, so two writers cannot collide and a genuinely
+contended node reports `hidraw-busy` after a bounded wait instead of wedging. The historical
 symptom is a status report that reads back all zero. `alienwarectl` detects that on session open,
 USB resets the controller once, reconnects and retries, without root. If the controller still
 reports an all-zero status after that, `alienwarectl rgb reset` is a manual escape hatch that does
@@ -165,6 +204,17 @@ Helper, from the cloned repo:
 cd ~/.config/omarchy/plugins/xyzlab.alienware/packaging && makepkg -si
 sudo systemctl enable --now alienwarectl.service
 ```
+
+**The PKGBUILD builds a TAG, not your working tree.** `source` is
+`git+${url}.git#tag=v${pkgver}`, so running `makepkg -si` with a stale `pkgver` will happily
+DOWNGRADE the installed package to whatever that tag holds. The two halves of this plugin therefore
+deploy differently:
+
+- QML and JS hot-reload on save. `omarchy restart shell` is enough.
+- Anything under `helper/` needs a version bump, a pushed `vX.Y.Z` tag, then `makepkg -si` and
+  `sudo systemctl restart alienwarectl.service`.
+
+Check what is actually running with `alienwarectl version` rather than assuming a rebuild took.
 
 The plugin must be a real directory. The shell's inotify watcher does not follow symlinks, which
 is why the package does not ship the plugin itself.
