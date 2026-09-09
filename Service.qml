@@ -279,9 +279,9 @@ Item {
         root.rgb = Model.normalizeRgbStatus(result.data)
         root.rgbError = ""
         root.rgbLoaded = true
-        if (!root.lightsRestored && root.stateLoaded) {
+        if (!root.lightsRestored && root.stateLoaded && root.rgb.device.ready) {
           root.lightsRestored = true
-          if (root.rgb.device.ready) root.restoreSavedLights()
+          root.restoreSavedLights()
         }
       } else {
         root.rgbError = result.error
@@ -330,9 +330,9 @@ Item {
         root.kbd = Model.normalizeKbdStatus(result.data)
         root.kbdError = ""
         root.kbdLoaded = true
-        if (!root.keyboardRestored && root.stateLoaded) {
+        if (!root.keyboardRestored && root.stateLoaded && root.kbd.present) {
           root.keyboardRestored = true
-          if (root.kbd.present) root.restoreSavedKeyboard()
+          root.restoreSavedKeyboard()
         }
       } else {
         root.kbdError = result.error
@@ -773,8 +773,35 @@ Item {
     onTriggered: root.applyThemeColor()
   }
 
+  Process {
+    id: sleepMonitor
+    running: true
+    command: ["dbus-monitor", "--system", "type='signal',interface='org.freedesktop.login1.Manager',member='PrepareForSleep'"]
+    stdout: SplitParser {
+      onRead: function(data) {
+        if (data.indexOf("boolean false") >= 0) root.reload()
+      }
+    }
+    onExited: sleepMonitorRetry.restart()
+  }
+
+  Timer {
+    id: sleepMonitorRetry
+    interval: 5000
+    repeat: false
+    onTriggered: sleepMonitor.running = true
+  }
+
+  function rearmRestore() {
+    lightsRestored = false
+    rgbRestoreTries = 0
+    keyboardRestored = false
+    kbdRestoreTries = 0
+  }
+
   function reload() {
     lastResult = null
+    rearmRestore()
     poll()
     refreshRgb()
     refreshKbd()

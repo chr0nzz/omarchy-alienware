@@ -92,13 +92,23 @@ the same reset on its own. There is a second, separate failure mode where the co
 writes but the LEDs stay frozen on an old frame. That one cannot be detected from a status read, so
 `rgb reset` is the fix for it too, run by hand.
 
+## Resume from suspend
+
+Both controllers drop their LED frames across a suspend. Service.qml watches the logind
+PrepareForSleep signal over dbus-monitor and, on the resume edge, calls reload(), which re-arms the
+restore latches and re-applies the saved chassis and keyboard colours. The existing retry ladders
+cover the window where the USB devices have not finished re-enumerating yet.
+
+The thermal profile is not part of this, see below.
+
 ## power-profiles-daemon
 
 power-profiles-daemon exposes three of the six profiles and re-applies its own choice on resume
 and on AC changes.
 
-This plugin treats sysfs as authoritative, leaves the daemon running, and re-asserts the selected
-profile after resume. If profiles still revert, mask it:
+This plugin treats sysfs as authoritative and leaves the daemon running. It does NOT re-assert the
+selected profile after resume, because it stores no desired profile, only what sysfs reports. So
+power-profiles-daemon wins across a suspend. If profiles revert on you, mask it:
 
 ```
 systemctl mask power-profiles-daemon
