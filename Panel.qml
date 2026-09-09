@@ -130,6 +130,8 @@ Panel {
   property string rgbSubTab: RgbSubTab.DEFAULT_SUB_TAB
   property bool rgbSubTabLoaded: false
   readonly property bool rgbSubTabReady: root.service && root.service.dirReady
+  property bool pickerOpen: false
+
   readonly property var batteryState: root.service ? root.service.battery : ({ ok: false })
   readonly property color powerButtonColor: {
     var hex = Model.batteryColor(root.batteryState)
@@ -1167,7 +1169,7 @@ Panel {
 
             TextField {
               id: colorField
-              width: parent.width - Style.space(28) - applyColor.width - Style.space(12)
+              width: parent.width - Style.space(28) - wheelToggle.width - applyColor.width - Style.space(18)
               anchors.verticalCenter: parent.verticalCenter
               placeholderText: "RRGGBB"
               foreground: root.fg
@@ -1184,8 +1186,20 @@ Panel {
             }
 
             Button {
-              id: applyColor
+              id: wheelToggle
               iconText: "󰸌"
+              bordered: true
+              anchors.verticalCenter: parent.verticalCenter
+              foreground: root.pickerOpen ? root.accent : root.fg
+              accent: root.accent
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              tooltipText: root.pickerOpen ? "Hide the colour wheel" : "Pick a colour from the wheel"
+              onClicked: root.pickerOpen = !root.pickerOpen
+            }
+
+            Button {
+              id: applyColor
               text: "Set"
               bordered: true
               enabled: root.rgbConnected
@@ -1200,6 +1214,7 @@ Panel {
 
           ColorPicker {
             width: parent.width
+            expanded: root.pickerOpen
             hex: colorField.text
             swatches: root.service ? root.service.themeSwatches : []
             themeEnabled: root.rgbConnected

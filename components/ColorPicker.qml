@@ -10,6 +10,7 @@ Column {
   property string hex: ""
   property var swatches: []
   property bool themeEnabled: true
+  property bool expanded: false
   property color fg: Color.foreground
   property color dim: Qt.darker(fg, 1.5)
   property color accent: Color.accent
@@ -89,7 +90,8 @@ Column {
   Row {
     id: pickerRow
     width: parent.width
-    spacing: Style.space(10)
+    spacing: Style.space(12)
+    visible: root.expanded
 
     Item {
       id: wheel
@@ -188,74 +190,49 @@ Column {
       }
     }
 
-    Column {
-      id: sideColumn
-      spacing: Style.space(8)
+    Item {
+      id: valueBar
+      width: Style.space(22)
+      height: wheel.height
+      anchors.verticalCenter: parent.verticalCenter
 
-      Column {
-        id: previewBlock
-        spacing: Style.space(4)
+      readonly property real trackHeight: height
 
-        Rectangle {
-          id: preview
-          width: Style.space(28)
-          height: Style.space(28)
-          radius: Style.cornerRadius
-          color: root.previewColor
-          border.color: Util.alpha(root.fg, 0.35)
-          border.width: Style.normalBorderWidth
-        }
+      function applyPoint(py) {
+        var frac = 1 - Math.max(0, Math.min(1, py / Math.max(1, trackHeight)))
+        root.val = frac * 100
+      }
 
-        Text {
-          textFormat: Text.PlainText
-          text: "#" + Model.hsvToHex(root.hue, root.sat, root.val)
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+      Rectangle {
+        anchors.fill: parent
+        radius: Style.cornerRadius
+        border.color: Util.alpha(root.fg, 0.35)
+        border.width: Style.normalBorderWidth
+        gradient: Gradient {
+          orientation: Gradient.Vertical
+          GradientStop { position: 0.0; color: Model.hexPreview(Model.hsvToHex(root.hue, root.sat, 100)) }
+          GradientStop { position: 1.0; color: "#000000" }
         }
       }
 
-      Item {
-        id: valueBar
-        width: Style.space(20)
-        height: wheel.height - previewBlock.height - sideColumn.spacing
+      Rectangle {
+        id: valueHandle
+        width: parent.width + Style.space(6)
+        height: Style.space(4)
+        radius: Style.space(2)
+        x: -Style.space(3)
+        y: Math.max(0, Math.min(valueBar.trackHeight - height, (1 - root.val / 100) * valueBar.trackHeight - height / 2))
+        color: root.fg
+        border.color: Color.background
+        border.width: Style.normalBorderWidth
+      }
 
-        readonly property real trackHeight: height
-
-        function applyPoint(py) {
-          var frac = 1 - Math.max(0, Math.min(1, py / Math.max(1, trackHeight)))
-          root.val = frac * 100
-        }
-
-        Rectangle {
-          anchors.fill: parent
-          border.color: Util.alpha(root.fg, 0.35)
-          border.width: Style.normalBorderWidth
-          gradient: Gradient {
-            orientation: Gradient.Vertical
-            GradientStop { position: 0.0; color: Model.hexPreview(Model.hsvToHex(root.hue, root.sat, 100)) }
-            GradientStop { position: 1.0; color: "#000000" }
-          }
-        }
-
-        Rectangle {
-          id: valueHandle
-          width: parent.width + Style.space(6)
-          height: Style.space(4)
-          x: -Style.space(3)
-          y: Math.max(0, Math.min(valueBar.trackHeight - height, (1 - root.val / 100) * valueBar.trackHeight - height / 2))
-          color: root.fg
-          border.color: Color.background
-          border.width: Style.normalBorderWidth
-        }
-
-        MouseArea {
-          anchors.fill: parent
-          preventStealing: true
-          cursorShape: Qt.SizeVerCursor
-          onPressed: function(mouse) { valueBar.applyPoint(mouse.y) }
-          onPositionChanged: function(mouse) { if (pressed) valueBar.applyPoint(mouse.y) }
-        }
+      MouseArea {
+        anchors.fill: parent
+        preventStealing: true
+        cursorShape: Qt.SizeVerCursor
+        onPressed: function(mouse) { valueBar.applyPoint(mouse.y) }
+        onPositionChanged: function(mouse) { if (pressed) valueBar.applyPoint(mouse.y) }
       }
     }
   }
@@ -263,8 +240,9 @@ Column {
   Text {
     width: parent.width
     wrapMode: Text.Wrap
+    visible: root.expanded
     textFormat: Text.PlainText
-    text: "Drag the wheel and bar to choose a colour. Set applies it to the selected regions."
+    text: "Drag the wheel for hue and saturation, the bar for brightness. Set applies it."
     color: root.dim
     font.family: root.fontFamily
     font.pixelSize: Style.font.caption
