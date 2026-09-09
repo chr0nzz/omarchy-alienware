@@ -5,7 +5,12 @@ An Omarchy 4 shell plugin for fans, lighting and power on the Alienware x15 R2.
 Plugin id `xyzlab.alienware`. Two parts: a Quickshell plugin that runs unprivileged, and
 `alienwarectl`, a Go binary that is both a root D-Bus daemon and a user-side CLI.
 
-## What works on this hardware
+## Roadmap
+
+Everything below was established on the author's Alienware x15 R2. Other models in the family
+differ, in particular the chassis zone ids and the keyboard index map.
+
+### Working
 
 | Control | Interface | State |
 |---|---|---|
@@ -17,19 +22,30 @@ Plugin id `xyzlab.alienware`. Two parts: a Quickshell plugin that runs unprivile
 | CPU turbo | `intel_pstate/no_turbo` | Read and write |
 | PL1 / PL2 / peak | `intel-rapl:0` | Write if firmware permits |
 | Fan boost | `fanN_boost` | Write, additive only |
-| Chassis RGB | AlienFX ELC over `/dev/hidraw0` | Write, no root |
-| Keyboard RGB (per key) | Darfon AlienFX APIv5 over `/dev/hidraw1` | Write, root only, see below |
-| Battery charge limit | none | Absent on this model |
-| GPU MUX / dynamic boost | none | Absent on this model |
+| Chassis RGB | AlienFX ELC over `/dev/hidraw0` | Four regions, unprivileged |
+| Keyboard RGB | Darfon AlienFX APIv5 over `/dev/hidraw1` | 88 leds across 84 keys, via the daemon |
+| Theme sync | shell accent | Paints chassis and keyboard |
+| Mute indicator | PipeWire | The two mute keys follow sink and source mute |
+| Restore on resume | logind `PrepareForSleep` | Lighting, and the profile from a pre sleep snapshot |
 
-## Two things the UI does not pretend about
+### Planned
 
-**Fan curves cannot make fans quieter.** The kernel exposes one additive `fanN_boost` value per
-fan, not a curve upload. A curve raises fans above the firmware's own choice and can never lower
-them. The curve editor draws that floor.
+| Item | Where it stands |
+|---|---|
+| `kbd brightness` | `kbd.Device.SetBrightness` exists in the device layer, no CLI verb exposes it |
+| Mute indicator settings | Always on and red. No toggle, no colour picker, not persisted to state |
+| RGB effects | `rgb mode` is a recognised verb that always answers `not-supported`. Only flat colours per region are wired up |
+| Keyboard effects | Not started. The controller drives its own loop frame, so this is a protocol question, not a UI one |
+| Per led addressing inside a ring half | The AW-ELC supports it, the CLI only exposes whole regions |
 
-**RGB lighting effects are not implemented.** `rgb mode` is a recognised verb that always answers
-`not-supported`. Only flat colours per region are wired up right now.
+### Not possible on this hardware
+
+| Item | Why |
+|---|---|
+| Fan curves that make fans quieter | The kernel exposes one additive `fanN_boost` per fan, not a curve upload. A curve can only raise fans above the firmware's own choice, never lower them. The curve editor draws that floor |
+| Battery charge limit | Absent on this model |
+| GPU MUX and dynamic boost | Absent on this model |
+| Mute and caps lock indicator lamps | Firmware driven off HID state. They are not in the AlienFX matrix and cannot be written |
 
 ## RGB regions
 
@@ -334,30 +350,3 @@ gh release download --repo chr0nzz/omarchy-alienware --pattern 'alienwarectl-*-x
 npm test
 cd helper && go test ./...
 ```
-
-## Status
-
-Chassis lighting, fans, thermal profiles, turbo and power limits are verified working on an
-Alienware x15 R2. The region map was established by lighting hardware zone ids one at a time and
-recording which part of the machine responded, so it reflects this hardware rather than a vendor
-table.
-
-Verified on hardware:
-
-- All four chassis regions address independently
-- `rgb set-map` writes several regions in one transaction and leaves unnamed regions untouched
-- Theme sync follows the active Omarchy theme
-- The colour picker offers theme swatches and HSV sliders, applied on demand rather than on drag
-
-In progress:
-
-- **Keyboard lighting.** The AlienFX APIv5 protocol (`all` and `key <n>`) was proven directly
-  against the real controller with a standalone spike CLI: lighting every key, lighting ESC alone,
-  and confirming the kernel keyboard driver stays bound throughout. That protocol code is now
-  promoted into the helper and wired up end to end, the daemon methods, the polkit gate and the
-  `kbd` CLI verbs, but the daemon-mediated path itself is not yet re-verified against hardware.
-
-Not implemented:
-
-- Lighting effects. `rgb mode` is recognised and always answers `not-supported`.
-- Per-LED addressing inside a ring half. The hardware supports it, the CLI does not expose it.
