@@ -21,8 +21,8 @@ Panel {
 
   function open() {
     openedFromHotkey = false
-    setCenterHoverRevealSuppressed(false)
     root.controller.show()
+    setCenterHoverRevealSuppressed(false)
     onOpened()
   }
 
@@ -45,9 +45,9 @@ Panel {
   }
 
   function close() {
-    setCenterHoverRevealSuppressed(false)
-    settingsOpen = false
     root.controller.hide()
+    settingsOpen = false
+    setCenterHoverRevealSuppressed(false)
   }
 
   function toggle() {
@@ -62,8 +62,14 @@ Panel {
   }
 
   function setCenterHoverRevealSuppressed(value) {
-    if (root.bar && "centerHoverRevealSuppressed" in root.bar)
-      root.bar.centerHoverRevealSuppressed = value
+    if (!root.bar) return
+    try {
+      if (typeof root.bar.setCenterHoverRevealSuppressed === "function")
+        root.bar.setCenterHoverRevealSuppressed(value)
+      else if ("centerHoverRevealSuppressed" in root.bar)
+        root.bar.centerHoverRevealSuppressed = value
+    } catch (e) {
+    }
   }
 
   readonly property color fg: bar ? bar.foreground : Color.foreground
@@ -124,6 +130,19 @@ Panel {
   property string rgbSubTab: RgbSubTab.DEFAULT_SUB_TAB
   property bool rgbSubTabLoaded: false
   readonly property bool rgbSubTabReady: root.service && root.service.dirReady
+  readonly property var batteryState: root.service ? root.service.battery : ({ ok: false })
+  readonly property color powerButtonColor: {
+    var hex = Model.batteryColor(root.batteryState)
+    return hex === "" ? root.dim : Model.hexPreview(hex)
+  }
+  readonly property string batteryLine: {
+    var b = root.batteryState
+    if (!b || b.ok !== true || b.percent < 0) return "battery state unavailable"
+    var pct = Math.round(b.percent) + "%"
+    if (b.percent < 10) return pct + " critical, red"
+    return pct + (b.charging === true ? " charging" : " on battery")
+  }
+
   readonly property string rgbSubTabEffective: RgbSubTab.normalizeRgbSubTab(root.rgbSubTab, root.kbdPresent)
 
   function applyRgbSubTabText(raw) {
@@ -507,7 +526,7 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(470))
+    contentWidth: panel.fittedContentWidth(Style.space(680))
     contentHeight: panel.fittedContentHeight(column.implicitHeight)
 
     PanelKeyCatcher {
@@ -1047,8 +1066,11 @@ Panel {
               dim: root.dim
               accent: root.accent
               fontFamily: root.fontFamily
+              powerColor: root.powerButtonColor
+              powerTooltip: root.batteryLine
               onToggleRequested: function(keyId) { root.toggleKeySelection(keyId) }
               onDragSelectRequested: function(keyIds) { root.addKeysToSelection(keyIds) }
+              onPowerClicked: if (root.service) root.service.toggleRegionOn(["power"])
             }
 
             Text {
