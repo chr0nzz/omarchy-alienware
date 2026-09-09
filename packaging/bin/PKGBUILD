@@ -1,6 +1,6 @@
 pkgname=omarchy-alienware-bin
 _pkgname=omarchy-alienware
-pkgver=0.3.3
+pkgver=0.3.4
 pkgrel=1
 pkgdesc='Alienware fan, thermal, power and RGB control for Omarchy, prebuilt binary'
 arch=('x86_64')
@@ -16,7 +16,7 @@ optdepends=(
 options=('!strip')
 _dir="alienwarectl-${pkgver}-x86_64"
 source=("${url}/releases/download/v${pkgver}/${_dir}.tar.gz")
-sha256sums=('f1fccd5402a138a782df81553452ee99e652a5f6309c3258d6ec52d6a81f805c')
+sha256sums=('39cbfbc58d35eaa2bcaef7ef7225265656566b15d35c18da528252fcbb122381')
 
 install=omarchy-alienware-bin.install
 
