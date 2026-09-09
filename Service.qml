@@ -17,7 +17,7 @@ Item {
   readonly property string statePath: stateDir + "/state.json"
 
   readonly property var defaults: manifest && manifest.barWidget && manifest.barWidget.defaults ? manifest.barWidget.defaults : ({})
-  readonly property var settings: resolveSettings(shell ? shell.shellConfig : null)
+  readonly property var settings: resolveSettings(shell ? (shell.barConfig || shell.shellConfig) : null)
 
   function resolveSettings(config) {
     var merged = {}
@@ -30,7 +30,7 @@ Item {
   function findEntry(config) {
     if (!config || typeof config !== "object") return null
     var key = Util.canonicalWidgetId(pluginId)
-    var bar = config.bar && typeof config.bar === "object" ? config.bar : null
+    var bar = config.bar && typeof config.bar === "object" ? config.bar : config
     var layout = bar && bar.layout && typeof bar.layout === "object" ? bar.layout : null
     var sections = ["left", "center", "right"]
     if (layout) {
