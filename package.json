@@ -5,6 +5,6 @@
   "description": "Alienware Command Center replacement for the Omarchy bar",
   "license": "MIT",
   "scripts": {
-    "test": "node --test tests/"
+    "test": "node --test tests/*.test.js"
   }
 }
