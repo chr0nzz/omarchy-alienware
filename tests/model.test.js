@@ -1145,6 +1145,20 @@ test("shouldRestoreProfile does nothing when the profile already matches or is u
   assert.equal(Model.shouldRestoreProfile(null, null, 200, 100), false)
 })
 
+test("themeKeyColorMap paints every paintable key and nothing else", () => {
+  const map = Model.themeKeyColorMap("#e68e0d")
+  const ids = Model.keyboardPaintableIds()
+  assert.equal(Object.keys(map).length, ids.length)
+  for (const id of ids) assert.equal(map[id], "E68E0D", id)
+  assert.equal(map.space, undefined)
+})
+
+test("themeKeyColorMap returns an empty map for an unusable colour", () => {
+  assert.deepEqual(Model.themeKeyColorMap(""), {})
+  assert.deepEqual(Model.themeKeyColorMap("nonsense"), {})
+  assert.deepEqual(Model.themeKeyColorMap(null), {})
+})
+
 test("parseMuteState reads the wpctl volume line in both states", () => {
   assert.deepEqual(Model.parseMuteState("Volume: 0.80"), { volume: 0.8, muted: false })
   assert.deepEqual(Model.parseMuteState("Volume: 1.00 [MUTED]"), { volume: 1, muted: true })

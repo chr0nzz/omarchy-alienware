@@ -1001,6 +1001,15 @@ function keyboardPaintableIds() {
   return out
 }
 
+function themeKeyColorMap(hex) {
+  var clean = normalizeHex(hex)
+  var map = {}
+  if (!clean) return map
+  var ids = keyboardPaintableIds()
+  for (var i = 0; i < ids.length; i++) map[ids[i]] = clean
+  return map
+}
+
 function normalizeKeyColorMap(raw) {
   var src = isObject(raw) ? raw : {}
   var ids = keyboardPaintableIds()

@@ -863,6 +863,8 @@ Item {
     color = hex
     lightsOn = true
     enqueue(Model.cmdRgbSetMap(Model.effectiveRegionColors(regionColors, regionOn)), "Theme colour")
+    keyColors = Model.themeKeyColorMap(hex)
+    pushKeyboard("Theme colour")
     scheduleSave()
     return true
   }
