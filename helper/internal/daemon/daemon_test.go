@@ -192,7 +192,9 @@ func TestCurveDrivesBoostAndFailsSafeOnStop(t *testing.T) {
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if readValue(t, reader.Root, "sys/class/hwmon/hwmon4/fan1_boost") == "200" {
+		cpuReady := readValue(t, reader.Root, "sys/class/hwmon/hwmon4/fan1_boost") == "200"
+		gpuReady := readValue(t, reader.Root, "sys/class/hwmon/hwmon4/fan2_boost") == "0"
+		if cpuReady && gpuReady {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
