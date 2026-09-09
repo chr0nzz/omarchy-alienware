@@ -1251,13 +1251,13 @@ function barState(status, health, display, hot) {
   }
   var tone = "normal"
   if (state === "warning") tone = "warn"
-  else if (state === "stopped" || state === "stale") tone = "muted"
+  else if (state === "stale") tone = "muted"
   return {
     state: state,
     view: view,
     text: text,
     tone: tone,
-    glyph: warning ? GLYPHS.hot : (stopped ? GLYPHS.idle : GLYPHS.alien)
+    glyph: warning ? GLYPHS.hot : GLYPHS.alien
   }
 }
 

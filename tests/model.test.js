@@ -608,12 +608,21 @@ test("barState goes to warning at or above the hot threshold", () => {
   assert.equal(Model.barState(status({ temps: { cpu: 89, gpu: 70 } }), "ok", "icon", 90).state, "ok")
 })
 
-test("barState shows stopped fans as a muted idle state", () => {
+test("barState reports stopped fans without dimming or changing the icon", () => {
   const idle = status({ fans: [{ id: "cpu", rpm: 0, max: 5700 }, { id: "gpu", rpm: 0, max: 5300 }], temps: { cpu: 41, gpu: 38 } })
   const s = Model.barState(idle, "ok", "full", 90)
   assert.equal(s.state, "stopped")
-  assert.equal(s.tone, "muted")
+  assert.equal(s.tone, "normal")
+  assert.equal(s.glyph, Model.GLYPHS.alien)
   assert.equal(s.text, "Balanced · 0 rpm · 38°")
+})
+
+test("the bar keeps the alien in every healthy state and only swaps it when hot", () => {
+  const running = status({ fans: [{ id: "cpu", rpm: 2200, max: 5700 }, { id: "gpu", rpm: 1800, max: 5300 }] })
+  assert.equal(Model.barState(running, "ok", "temp", 90).glyph, Model.GLYPHS.alien)
+  assert.equal(Model.barState(running, "stale", "temp", 90).glyph, Model.GLYPHS.alien)
+  const hot = status({ temps: { cpu: 95, gpu: 60 } })
+  assert.equal(Model.barState(hot, "ok", "temp", 90).glyph, Model.GLYPHS.hot)
 })
 
 test("barState prefers a hot warning over stopped fans", () => {
