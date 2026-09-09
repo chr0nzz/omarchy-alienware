@@ -55,6 +55,13 @@ any process running as that user read keystrokes. All keyboard writes go through
 over D-Bus, gated by the `org.xyzlab.alienware.set-keyboard` polkit action, the same pattern as the
 fan and profile controls.
 
+Keyboard authorisation is deliberately NON interactive. `CheckAuthorization` is called with no
+user interaction flag for `set-keyboard` only, so when the session is locked, such as during the
+restore that runs on resume, polkit returns not-authorized instead of raising a password prompt.
+The plugin re-arms its keyboard restore on a denied write and the existing retry ladder applies the
+colours once the session is unlocked and active again. Lighting must never interrupt the user for a
+password, it is not an action they asked for.
+
 | Verb | Effect |
 | --- | --- |
 | `kbd status` | Report presence and key count, `present:false` cleanly if the controller is absent |

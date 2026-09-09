@@ -500,6 +500,10 @@ Item {
       var result = Model.parseResult(writeOut.text, exitCode)
       if (!result.ok && !result.error) result.error = String(writeErr.text || "").trim()
       root.actionError = !result.ok
+      if (!result.ok && result.code === "denied" && root.kbd.present) {
+        root.keyboardRestored = false
+        root.kbdRestoreTries = 0
+      }
       root.actionStatus = result.ok ? (root.lastAction ? root.lastAction + " applied" : "Applied") : result.error
       root.actionFinished(result.ok, root.actionStatus)
       actionReset.restart()

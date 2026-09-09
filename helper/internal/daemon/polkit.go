@@ -20,7 +20,15 @@ const (
 	authorizeTimeout = 30 * time.Second
 
 	flagAllowUserInteraction = uint32(1)
+	flagNoUserInteraction    = uint32(0)
 )
+
+func interactionFlags(action string) uint32 {
+	if action == ActionSetKeyboard {
+		return flagNoUserInteraction
+	}
+	return flagAllowUserInteraction
+}
 
 type polkitSubject struct {
 	Kind    string
@@ -56,7 +64,7 @@ func (p *polkitAuthorizer) Authorize(sender dbus.Sender, action string) error {
 	obj := p.conn.Object(polkitService, dbus.ObjectPath(polkitPath))
 	var res polkitResult
 	call := obj.CallWithContext(ctx, polkitInterface+".CheckAuthorization", 0,
-		subject, action, map[string]string{}, flagAllowUserInteraction, "")
+		subject, action, map[string]string{}, interactionFlags(action), "")
 	if call.Err != nil {
 		return errDenied("polkit is unavailable: " + call.Err.Error())
 	}
@@ -64,6 +72,9 @@ func (p *polkitAuthorizer) Authorize(sender dbus.Sender, action string) error {
 		return errDenied("polkit returned an unexpected reply: " + err.Error())
 	}
 	if !res.IsAuthorized {
+		if res.IsChallenge {
+			return errDenied("not authorized for " + action + " yet, the session must be unlocked and active")
+		}
 		return errDenied("not authorized for " + action)
 	}
 	return nil
