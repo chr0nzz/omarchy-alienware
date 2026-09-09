@@ -24,13 +24,12 @@ Item {
 
   readonly property string alienGlyph: "\uDB82\uDC9A"
   readonly property real badgeSize: Style.space(44)
-  readonly property real ringDiameter: Style.space(108)
-  readonly property real ringStroke: Style.space(11)
+  readonly property real deckWidth: Math.min(root.width > 0 ? root.width * 0.86 : Style.space(300), Style.space(360))
+  readonly property real deckHeight: Style.space(54)
+  readonly property real lidHeight: Style.space(96)
+  readonly property real ringStroke: Style.space(9)
   readonly property real ringAccentStroke: Style.space(3)
-  readonly property real ringVisualSize: ringDiameter + ringStroke * 2 + ringAccentStroke * 2
-  readonly property real ringRadius: ringDiameter / 2
-  readonly property real ringAccentRadius: ringRadius + ringStroke / 2 + ringAccentStroke / 2 + Style.space(2)
-  readonly property var chipOrder: ["logo", "power", "ring-top", "ring-bottom"]
+  readonly property var chipOrder: ["logo", "ring-top", "ring-bottom"]
 
   function regionList() { return Model.toList(root.regions) }
 
@@ -74,6 +73,21 @@ Item {
     return isSelected(id) ? root.accent : "transparent"
   }
 
+  function stadiumPath(w, h, inset, top) {
+    var x0 = inset
+    var x1 = w - inset
+    var y0 = inset
+    var y1 = h - inset
+    var r = (y1 - y0) / 2
+    var cy = (y0 + y1) / 2
+    if (top) {
+      return "M" + x0 + "," + cy + " A" + r + "," + r + " 0 0 1 " + (x0 + r) + "," + y0 +
+        " L" + (x1 - r) + "," + y0 + " A" + r + "," + r + " 0 0 1 " + x1 + "," + cy
+    }
+    return "M" + x0 + "," + cy + " A" + r + "," + r + " 0 0 0 " + (x0 + r) + "," + y1 +
+      " L" + (x1 - r) + "," + y1 + " A" + r + "," + r + " 0 0 0 " + x1 + "," + cy
+  }
+
   function arcPath(cx, cy, r, top) {
     var x1 = cx - r
     var y1 = cy
@@ -96,16 +110,19 @@ Item {
     width: parent.width
     spacing: Style.space(4)
 
-    CursorSurface {
-      id: logoBadge
+    Item {
+      id: lid
       anchors.horizontalCenter: parent.horizontalCenter
-      width: root.badgeSize
-      height: root.badgeSize
-      radius: Style.cornerRadius
-      foreground: root.fg
-      accent: root.accent
-      hasCursor: root.isCursor("logo")
-      current: root.isSelected("logo")
+      width: root.deckWidth
+      height: root.lidHeight
+
+      Rectangle {
+        anchors.fill: parent
+        radius: Style.space(6)
+        color: "transparent"
+        border.color: root.isSelected("logo") ? root.accent : Util.alpha(root.fg, 0.28)
+        border.width: root.isSelected("logo") ? Style.space(2) : Style.normalBorderWidth
+      }
 
       Text {
         anchors.centerIn: parent
@@ -116,6 +133,17 @@ Item {
         font.pixelSize: Style.font.display
       }
 
+      Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Style.space(4)
+        textFormat: Text.PlainText
+        text: root.nameFor("logo").toUpperCase()
+        color: root.isPowered("logo") ? (root.isSelected("logo") ? root.accent : root.dim) : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+
       MouseArea {
         anchors.fill: parent
         hoverEnabled: true
@@ -124,21 +152,26 @@ Item {
       }
     }
 
-    Text {
-      anchors.horizontalCenter: parent.horizontalCenter
-      textFormat: Text.PlainText
-      text: root.nameFor("ring-top").toUpperCase()
-      color: root.isPowered("ring-top") ? (root.isSelected("ring-top") ? root.accent : root.fg) : root.dim
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      font.bold: root.isSelected("ring-top")
-    }
-
     Item {
       id: ringBox
       anchors.horizontalCenter: parent.horizontalCenter
-      width: root.ringVisualSize
-      height: root.ringVisualSize
+      width: root.deckWidth
+      height: root.deckHeight
+
+      Row {
+        anchors.centerIn: parent
+        spacing: Style.space(7)
+
+        Repeater {
+          model: 6
+          Rectangle {
+            width: index === 0 || index === 5 ? Style.space(13) : Style.space(9)
+            height: Style.space(7)
+            radius: Style.space(2)
+            color: Util.alpha(root.fg, 0.20)
+          }
+        }
+      }
 
       Shape {
         anchors.fill: parent
@@ -149,7 +182,7 @@ Item {
           strokeColor: root.arcStrokeColor("ring-top")
           fillColor: "transparent"
           capStyle: ShapePath.RoundCap
-          PathSvg { path: root.arcPath(root.ringVisualSize / 2, root.ringVisualSize / 2, root.ringRadius, true) }
+          PathSvg { path: root.stadiumPath(root.deckWidth, root.deckHeight, root.ringStroke / 2, true) }
         }
 
         ShapePath {
@@ -157,7 +190,7 @@ Item {
           strokeColor: root.arcStrokeColor("ring-bottom")
           fillColor: "transparent"
           capStyle: ShapePath.RoundCap
-          PathSvg { path: root.arcPath(root.ringVisualSize / 2, root.ringVisualSize / 2, root.ringRadius, false) }
+          PathSvg { path: root.stadiumPath(root.deckWidth, root.deckHeight, root.ringStroke / 2, false) }
         }
 
         ShapePath {
@@ -165,7 +198,7 @@ Item {
           strokeColor: root.accentStrokeColor("ring-top")
           fillColor: "transparent"
           capStyle: ShapePath.RoundCap
-          PathSvg { path: root.arcPath(root.ringVisualSize / 2, root.ringVisualSize / 2, root.ringAccentRadius, true) }
+          PathSvg { path: root.stadiumPath(root.deckWidth, root.deckHeight, root.ringStroke + root.ringAccentStroke, true) }
         }
 
         ShapePath {
@@ -173,7 +206,7 @@ Item {
           strokeColor: root.accentStrokeColor("ring-bottom")
           fillColor: "transparent"
           capStyle: ShapePath.RoundCap
-          PathSvg { path: root.arcPath(root.ringVisualSize / 2, root.ringVisualSize / 2, root.ringAccentRadius, false) }
+          PathSvg { path: root.stadiumPath(root.deckWidth, root.deckHeight, root.ringStroke + root.ringAccentStroke, false) }
         }
       }
 
@@ -198,41 +231,34 @@ Item {
       }
     }
 
-    Text {
+    Row {
       anchors.horizontalCenter: parent.horizontalCenter
-      textFormat: Text.PlainText
-      text: root.nameFor("ring-bottom").toUpperCase()
-      color: root.isPowered("ring-bottom") ? (root.isSelected("ring-bottom") ? root.accent : root.fg) : root.dim
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      font.bold: root.isSelected("ring-bottom")
-    }
-
-    CursorSurface {
-      id: powerBadge
-      anchors.horizontalCenter: parent.horizontalCenter
-      width: root.badgeSize
-      height: root.badgeSize
-      radius: Style.cornerRadius
-      foreground: root.fg
-      accent: root.accent
-      hasCursor: root.isCursor("power")
-      current: root.isSelected("power")
+      spacing: Style.space(10)
 
       Text {
-        anchors.centerIn: parent
         textFormat: Text.PlainText
-        text: root.alienGlyph
-        color: root.glyphColor("power")
+        text: root.nameFor("ring-top").toUpperCase()
+        color: root.isPowered("ring-top") ? (root.isSelected("ring-top") ? root.accent : root.fg) : root.dim
         font.family: root.fontFamily
-        font.pixelSize: Style.font.display
+        font.pixelSize: Style.font.caption
+        font.bold: root.isSelected("ring-top")
       }
 
-      MouseArea {
-        anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onClicked: root.activate("power")
+      Text {
+        textFormat: Text.PlainText
+        text: "/"
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+
+      Text {
+        textFormat: Text.PlainText
+        text: root.nameFor("ring-bottom").toUpperCase()
+        color: root.isPowered("ring-bottom") ? (root.isSelected("ring-bottom") ? root.accent : root.fg) : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: root.isSelected("ring-bottom")
       }
     }
 
