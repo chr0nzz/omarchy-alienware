@@ -6,26 +6,27 @@ arch=('x86_64')
 url='https://github.com/chr0nzz/omarchy-alienware'
 license=('MIT')
 depends=('dbus' 'polkit')
-makedepends=('go' 'git')
+makedepends=('go')
 optdepends=(
   'nvidia-utils: GPU power telemetry through nvidia-smi'
   'quickshell: runs the Omarchy bar widget and panel'
 )
 backup=()
 options=('!lto')
-source=("git+${url}.git#tag=v${pkgver}")
-sha256sums=('SKIP')
+_commit=20ba93ab0f22959b525b64666ad49de102110091
+source=("${pkgname}-${_commit}.tar.gz::${url}/archive/${_commit}.tar.gz")
+sha256sums=('59890f00d1cf66257cd94505f290a35fbad92fabb99652c001a5cebc2b746630')
 
 install=omarchy-alienware.install
 
 prepare() {
-  cd "${srcdir}/${pkgname}/helper"
+  cd "${srcdir}/${pkgname}-${_commit}/helper"
   export GOPATH="${srcdir}/gopath"
   go mod download
 }
 
 build() {
-  cd "${srcdir}/${pkgname}/helper"
+  cd "${srcdir}/${pkgname}-${_commit}/helper"
   export GOPATH="${srcdir}/gopath"
   export CGO_ENABLED=0
   export GOFLAGS="-trimpath -mod=readonly -modcacherw"
@@ -34,13 +35,13 @@ build() {
 }
 
 check() {
-  cd "${srcdir}/${pkgname}/helper"
+  cd "${srcdir}/${pkgname}-${_commit}/helper"
   export GOPATH="${srcdir}/gopath"
   go test ./...
 }
 
 package() {
-  cd "${srcdir}/${pkgname}"
+  cd "${srcdir}/${pkgname}-${_commit}"
 
   install -Dm755 "${srcdir}/alienwarectl" "${pkgdir}/usr/bin/alienwarectl"
   install -Dm644 packaging/systemd/alienwarectl.service \

@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HAS_MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN != '' }}
+      MARKETPLACE_LISTED: ${{ vars.MARKETPLACE_LISTED == 'true' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -111,16 +112,16 @@ jobs:
               alienwarectl "alienwarectl-${version}-x86_64.tar.gz" sha256sums.txt
           fi
 
-      - name: Print the line for packaging/bin/PKGBUILD
+      - name: Say why the marketplace step was skipped
+        if: env.MARKETPLACE_LISTED != 'true'
         run: |
-          version="${{ steps.version.outputs.value }}"
-          sum=$(sha256sum "alienwarectl-${version}-x86_64.tar.gz" | cut -d" " -f1)
-          echo "Update packaging/bin/PKGBUILD and push that commit:"
-          echo "  pkgver=${version}"
-          echo "  sha256sums=('${sum}')"
+          echo "Skipping the marketplace verification issue."
+          echo "The verify form only accepts a plugin that is already listed."
+          echo "Submit once through the submit-plugin form, then set the repository"
+          echo "variable MARKETPLACE_LISTED to true so future tags open a verify issue."
 
       - name: Open the marketplace verification issue
-        if: env.HAS_MARKETPLACE_TOKEN == 'true'
+        if: env.HAS_MARKETPLACE_TOKEN == 'true' && env.MARKETPLACE_LISTED == 'true'
         env:
           GH_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
         run: |
