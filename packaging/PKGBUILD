@@ -13,9 +13,9 @@ optdepends=(
 )
 backup=()
 options=('!lto')
-_commit=20ba93ab0f22959b525b64666ad49de102110091
+_commit=079e0feafbca16016dd09318481f4c332860cac3
 source=("${pkgname}-${_commit}.tar.gz::${url}/archive/${_commit}.tar.gz")
-sha256sums=('59890f00d1cf66257cd94505f290a35fbad92fabb99652c001a5cebc2b746630')
+sha256sums=('10c5cd2d7f0f7f716639e5c33aaca890c61e9b4c30583fc4406cdbd7faefe942')
 
 install=omarchy-alienware.install
 
