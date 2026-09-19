@@ -37,6 +37,38 @@ func fakeSessionOpener(statuses ...uint8) func() (*Session, error) {
 	}
 }
 
+type coldTransport struct {
+	fakeTransport
+}
+
+func (c *coldTransport) SetOutputReport(buf []byte) (int, error) {
+	c.inputResponses = [][]byte{statusFrame(StatusV4Ready)}
+	c.inputIdx = 0
+	return c.fakeTransport.SetOutputReport(buf)
+}
+
+func TestOpenWithResetPrimesAColdControllerWithoutAUSBReset(t *testing.T) {
+	ft := &coldTransport{fakeTransport{inputResponses: [][]byte{statusFrame(0)}, inputRepeatLast: true}}
+	opener := func() (*Session, error) {
+		return NewSession(NewWithTransport(ft, WriteModeOutput), "/dev/fake-hidraw"), nil
+	}
+	resetter := &fakeResetter{node: "/dev/bus/usb/003/017"}
+	session, err := openWithReset(opener, resetter)
+	if err != nil {
+		t.Fatalf("openWithReset() error = %v", err)
+	}
+	defer session.Close()
+	if resetter.calls != 0 {
+		t.Fatalf("reset calls = %d, want 0 when the first control frame wakes the controller", resetter.calls)
+	}
+	if len(ft.outputs) != 2 {
+		t.Fatalf("output frames = %d, want remove then start-new", len(ft.outputs))
+	}
+	if !session.ready {
+		t.Fatalf("session ready = false, want true after priming")
+	}
+}
+
 func TestOpenWithResetSkipsResetWhenNotWedged(t *testing.T) {
 	opener := fakeSessionOpener(StatusV4Ready)
 	resetter := &fakeResetter{node: "/dev/bus/usb/003/017"}

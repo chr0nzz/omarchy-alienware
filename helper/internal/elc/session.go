@@ -82,6 +82,17 @@ func (s *Session) looksWedged() (bool, error) {
 	return true, nil
 }
 
+func (s *Session) probeWedged() (bool, error) {
+	wedged, err := s.looksWedged()
+	if err != nil || !wedged {
+		return wedged, err
+	}
+	if err := s.dev.Reset(); err != nil {
+		return false, err
+	}
+	return s.looksWedged()
+}
+
 func OpenWithReset(resetter Resetter) (*Session, error) {
 	return openWithReset(open, resetter)
 }
@@ -91,7 +102,7 @@ func openWithReset(opener func() (*Session, error), resetter Resetter) (*Session
 	if err != nil {
 		return nil, err
 	}
-	wedged, err := session.looksWedged()
+	wedged, err := session.probeWedged()
 	if err != nil {
 		session.Close()
 		return nil, err
@@ -113,7 +124,7 @@ func openWithReset(opener func() (*Session, error), resetter Resetter) (*Session
 	if err != nil {
 		return nil, err
 	}
-	wedged, err = retried.looksWedged()
+	wedged, err = retried.probeWedged()
 	if err != nil {
 		retried.Close()
 		return nil, err
@@ -141,7 +152,7 @@ type RegionStatus struct {
 
 func (s *Session) Status() (DeviceStatus, []RegionStatus) {
 	if !s.probed {
-		wedged, err := s.looksWedged()
+		wedged, err := s.probeWedged()
 		s.recordProbe(err != nil || wedged)
 	}
 	device := DeviceStatus{

@@ -106,8 +106,10 @@ controller, and every RGB command will fail.
 **The AW-ELC controller (187c:0550) wedges if two processes open its HID node at once.** Every
 `hidraw.Open` now takes an advisory `flock`, so two writers cannot collide and a genuinely
 contended node reports `hidraw-busy` after a bounded wait instead of wedging. The historical
-symptom is a status report that reads back all zero. `alienwarectl` detects that on session open,
-USB resets the controller once, reconnects and retries, without root. If the controller still
+symptom is a status report that reads back all zero. A controller fresh from any USB reset also
+reads all zero until it receives its first command, so `alienwarectl` first sends the remove and
+start-new control frames and reads again. Only if the status stays zero does it USB reset the
+controller once, reconnect, prime it the same way and retry, without root. If the controller still
 reports an all-zero status after that, `alienwarectl rgb reset` is a manual escape hatch that does
 the same reset on its own. There is a second, separate failure mode where the controller accepts
 writes but the LEDs stay frozen on an old frame. That one cannot be detected from a status read, so
