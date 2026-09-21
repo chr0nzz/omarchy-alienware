@@ -450,3 +450,30 @@ func TestReadCPUUnreadableValuesDegrade(t *testing.T) {
 		t.Fatalf("garbage cpufreq must not report available, got %+v", s.CPU)
 	}
 }
+
+func TestGPUAsleepSkipsNvidiaSmi(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "sys/bus/pci/devices/0000:00:02.0/vendor", "0x8086\n")
+	writeFile(t, root, "sys/bus/pci/devices/0000:00:02.0/class", "0x030000\n")
+	writeFile(t, root, "sys/bus/pci/devices/0000:01:00.0/vendor", "0x10de\n")
+	writeFile(t, root, "sys/bus/pci/devices/0000:01:00.0/class", "0x030000\n")
+	writeFile(t, root, "sys/bus/pci/devices/0000:01:00.0/power/runtime_status", "suspended\n")
+	calls := 0
+	r := &Reader{Root: root, RunNvidia: func() (string, error) {
+		calls++
+		return "22.40, 55.00, 90.00, 140.00\n", nil
+	}}
+	g := r.GPU()
+	if calls != 0 {
+		t.Fatalf("nvidia-smi ran %d times against a suspended GPU", calls)
+	}
+	if !g.Asleep || g.Available {
+		t.Fatalf("want asleep and unavailable, got %+v", g)
+	}
+
+	writeFile(t, root, "sys/bus/pci/devices/0000:01:00.0/power/runtime_status", "active\n")
+	g = r.GPU()
+	if calls != 1 || !g.Available || g.Asleep {
+		t.Fatalf("awake GPU should be queried once, got calls=%d gpu=%+v", calls, g)
+	}
+}

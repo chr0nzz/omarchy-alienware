@@ -57,6 +57,7 @@ type Power struct {
 
 type GPU struct {
 	Available     bool     `json:"available"`
+	Asleep        bool     `json:"asleep"`
 	Draw          *float64 `json:"draw"`
 	Limit         *float64 `json:"limit"`
 	DefaultLimit  *float64 `json:"defaultLimit"`

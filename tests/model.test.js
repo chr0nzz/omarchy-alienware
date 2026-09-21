@@ -68,12 +68,22 @@ test("setting clamps follow the contract ranges", () => {
   assert.equal(Model.clampBrightness(-5), 0)
 })
 
-test("normalizeDisplay maps the three bar modes", () => {
-  assert.equal(Model.normalizeDisplay("temp"), "temp")
-  assert.equal(Model.normalizeDisplay("Full"), "full")
-  assert.equal(Model.normalizeDisplay("expanded"), "full")
-  assert.equal(Model.normalizeDisplay("nonsense"), "icon")
-  assert.equal(Model.normalizeDisplay(null), "icon")
+test("parseBarItems reads lists, comma strings and the old modes", () => {
+  assert.deepEqual(Model.parseBarItems("icon"), ["logo"])
+  assert.deepEqual(Model.parseBarItems("temp"), ["cpu"])
+  assert.deepEqual(Model.parseBarItems("full"), ["mode", "gpu", "fan"])
+  assert.deepEqual(Model.parseBarItems("gpu, cpu"), ["cpu", "gpu"])
+  assert.deepEqual(Model.parseBarItems(["fan", "logo", "bogus"]), ["logo", "fan"])
+  assert.deepEqual(Model.parseBarItems("gpuPower"), ["gpuPower"])
+  assert.deepEqual(Model.parseBarItems(""), ["logo"])
+  assert.deepEqual(Model.parseBarItems(null), ["logo"])
+  assert.equal(Model.serializeBarItems(["gpu", "cpu"]), "cpu,gpu")
+})
+
+test("toggleBarItem adds and removes but never empties the bar", () => {
+  assert.deepEqual(Model.toggleBarItem("cpu", "gpu"), ["cpu", "gpu"])
+  assert.deepEqual(Model.toggleBarItem("cpu,gpu", "cpu"), ["gpu"])
+  assert.deepEqual(Model.toggleBarItem("cpu", "cpu"), ["cpu"])
 })
 
 test("parseJson tolerates malformed and empty payloads", () => {
@@ -564,77 +574,72 @@ test("healthLine explains each health state", () => {
   assert.equal(Model.healthLine("ok", null, status({ warnings: [] })), "Ready")
 })
 
-test("barState hides everything when the binary is missing", () => {
-  const s = Model.barState(status(), "missing", "full", 90)
-  assert.equal(s.state, "missing")
-  assert.equal(s.view, "icon")
-  assert.equal(s.text, "")
-  assert.equal(s.tone, "muted")
+function seg(view, id) { return view.segments.find(function(x) { return x.id === id }) }
+
+test("barView shows only a missing glyph when the helper is absent or broken", () => {
+  const missing = Model.barView(status(), "missing", "cpu,gpu,fan", 90)
+  assert.equal(missing.state, "missing")
+  assert.equal(missing.tone, "muted")
+  assert.deepEqual(missing.segments, [{ id: "logo", glyph: Model.GLYPHS.missing, text: "", alert: false }])
+  const error = Model.barView(status(), "error", "cpu", 90)
+  assert.equal(error.tone, "warn")
+  assert.equal(error.segments[0].alert, true)
 })
 
-test("barState marks a helper error without pretending to have numbers", () => {
-  const s = Model.barState(status(), "error", "temp", 90)
-  assert.equal(s.state, "error")
-  assert.equal(s.text, "")
-  assert.equal(s.tone, "warn")
+test("barView gives each reading its own glyph and value", () => {
+  const v = Model.barView(status(), "ok", "logo,mode,cpu,gpu,fan", 90)
+  assert.deepEqual(v.segments.map(function(x) { return x.id }), ["logo", "mode", "cpu", "gpu", "fan"])
+  assert.equal(seg(v, "logo").glyph, Model.GLYPHS.alien)
+  assert.equal(seg(v, "mode").glyph, Model.profileGlyph("balanced"))
+  assert.equal(seg(v, "cpu").glyph, "󰻠")
+  assert.equal(seg(v, "cpu").text, "47°")
+  assert.equal(seg(v, "gpu").glyph, "󰢮")
+  assert.equal(seg(v, "gpu").text, "43°")
+  assert.equal(seg(v, "fan").text, "2.1k")
+  assert.equal(v.state, "ok")
 })
 
-test("barState icon mode shows no text", () => {
-  const s = Model.barState(status(), "ok", "icon", 90)
-  assert.equal(s.state, "ok")
-  assert.equal(s.view, "icon")
-  assert.equal(s.text, "")
-})
-
-test("barState compact mode shows the cpu temperature", () => {
-  const s = Model.barState(status(), "ok", "temp", 90)
-  assert.equal(s.view, "compact")
-  assert.equal(s.text, "47°")
-})
-
-test("barState expanded mode shows profile, rpm and gpu temperature", () => {
-  const s = Model.barState(status(), "ok", "full", 90)
-  assert.equal(s.view, "expanded")
-  assert.equal(s.text, "Balanced · 2100 rpm · 43°")
-})
-
-test("barState goes to warning at or above the hot threshold", () => {
+test("barView marks the hot reading, or swaps the logo when no temperature is shown", () => {
   const hot = status({ temps: { cpu: 90, gpu: 70 } })
-  const s = Model.barState(hot, "ok", "icon", 90)
-  assert.equal(s.state, "warning")
-  assert.equal(s.tone, "warn")
-  assert.equal(s.view, "compact")
-  assert.equal(s.text, "90°")
-  assert.equal(Model.barState(status({ temps: { cpu: 89, gpu: 70 } }), "ok", "icon", 90).state, "ok")
+  const shown = Model.barView(hot, "ok", "cpu,gpu", 90)
+  assert.equal(shown.state, "warning")
+  assert.equal(seg(shown, "cpu").alert, true)
+  assert.equal(seg(shown, "gpu").alert, false)
+  const hidden = Model.barView(hot, "ok", "logo,fan", 90)
+  assert.equal(seg(hidden, "logo").glyph, Model.GLYPHS.hot)
+  assert.equal(seg(hidden, "logo").alert, true)
+  assert.equal(Model.barView(status({ temps: { cpu: 89, gpu: 70 } }), "ok", "logo", 90).state, "ok")
 })
 
-test("barState reports stopped fans without dimming or changing the icon", () => {
+test("barView reports stopped fans and prefers heat over them", () => {
   const idle = status({ fans: [{ id: "cpu", rpm: 0, max: 5700 }, { id: "gpu", rpm: 0, max: 5300 }], temps: { cpu: 41, gpu: 38 } })
-  const s = Model.barState(idle, "ok", "full", 90)
-  assert.equal(s.state, "stopped")
-  assert.equal(s.tone, "normal")
-  assert.equal(s.glyph, Model.GLYPHS.alien)
-  assert.equal(s.text, "Balanced · 0 rpm · 38°")
-})
-
-test("the bar keeps the alien in every healthy state and only swaps it when hot", () => {
-  const running = status({ fans: [{ id: "cpu", rpm: 2200, max: 5700 }, { id: "gpu", rpm: 1800, max: 5300 }] })
-  assert.equal(Model.barState(running, "ok", "temp", 90).glyph, Model.GLYPHS.alien)
-  assert.equal(Model.barState(running, "stale", "temp", 90).glyph, Model.GLYPHS.alien)
-  const hot = status({ temps: { cpu: 95, gpu: 60 } })
-  assert.equal(Model.barState(hot, "ok", "temp", 90).glyph, Model.GLYPHS.hot)
-})
-
-test("barState prefers a hot warning over stopped fans", () => {
+  const v = Model.barView(idle, "ok", "fan", 90)
+  assert.equal(v.state, "stopped")
+  assert.equal(v.tone, "normal")
+  assert.equal(seg(v, "fan").text, "0")
   const bad = status({ fans: [{ id: "cpu", rpm: 0, max: 5700 }, { id: "gpu", rpm: 0, max: 5300 }], temps: { cpu: 95, gpu: 60 } })
-  assert.equal(Model.barState(bad, "ok", "temp", 90).state, "warning")
+  assert.equal(Model.barView(bad, "ok", "cpu", 90).state, "warning")
 })
 
-test("barState dims stale readings but keeps the last numbers", () => {
-  const s = Model.barState(status(), "stale", "temp", 90)
-  assert.equal(s.state, "stale")
-  assert.equal(s.tone, "muted")
-  assert.equal(s.text, "47°")
+test("barView dims stale readings but keeps the last numbers", () => {
+  const v = Model.barView(status(), "stale", "cpu", 90)
+  assert.equal(v.state, "stale")
+  assert.equal(v.tone, "muted")
+  assert.equal(seg(v, "cpu").text, "47°")
+})
+
+test("barView shows GPU power, or off when the GPU sleeps", () => {
+  const awake = status({ gpu: { available: true, draw: 42.6, limit: 90, defaultLimit: 90 } })
+  assert.equal(seg(Model.barView(awake, "ok", "gpuPower", 90), "gpuPower").text, "43W")
+  const asleep = status({ gpu: { available: false } })
+  assert.equal(seg(Model.barView(asleep, "ok", "gpuPower", 90), "gpuPower").text, "off")
+})
+
+test("formatRpmShort keeps the bar narrow", () => {
+  assert.equal(Model.formatRpmShort(0), "0")
+  assert.equal(Model.formatRpmShort(850), "850")
+  assert.equal(Model.formatRpmShort(3950), "4.0k")
+  assert.equal(Model.formatRpmShort(undefined), "-")
 })
 
 test("barTooltip lists the fans and temperatures", () => {
@@ -1632,4 +1637,31 @@ test("installArgv tries omarchy first and honours TERMINAL", function() {
 test("installArgv is empty without a script path", function() {
   assert.deepEqual(Model.installArgv(""), [])
   assert.deepEqual(Model.installArgv(null), [])
+})
+
+test("selectionSummary names what Apply will paint", () => {
+  assert.equal(Model.selectionSummary(0, []), "")
+  assert.equal(Model.selectionSummary(1, []), "1 key")
+  assert.equal(Model.selectionSummary(12, []), "12 keys")
+  assert.equal(Model.selectionSummary(0, ["power"]), "the power button")
+  assert.equal(Model.selectionSummary(3, ["power"]), "3 keys and the power button")
+  assert.equal(Model.selectionSummary(0, ["logo", "ring-top"]), "2 regions")
+})
+
+test("batterySync persists and defaults on", () => {
+  assert.equal(Model.parseState("").batterySync, true)
+  assert.equal(Model.parseState(JSON.stringify({ batterySync: false })).batterySync, false)
+  assert.equal(Model.buildStatePayload({ batterySync: false }).batterySync, false)
+  assert.equal(Model.buildStatePayload({}).batterySync, true)
+})
+
+test("colour presets are valid hex", () => {
+  for (const p of Model.COLOR_PRESETS) assert.equal(Model.normalizeHex(p.hex), p.hex)
+})
+
+test("normalizeGpu carries the asleep flag and the bar shows it", () => {
+  assert.equal(Model.normalizeGpu({ asleep: true }).asleep, true)
+  assert.equal(Model.normalizeGpu({}).asleep, false)
+  const asleep = status({ gpu: { available: false, asleep: true } })
+  assert.equal(Model.barView(asleep, "ok", "gpuPower", 90).segments[0].text, "zz")
 })

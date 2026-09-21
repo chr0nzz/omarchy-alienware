@@ -24,7 +24,7 @@
     "defaults": {
       "pollInterval": 2,
       "hotTemp": 90,
-      "display": "temp",
+      "display": "cpu",
       "themeRgb": false
     },
     "schema": [
@@ -49,8 +49,8 @@
       {
         "key": "display",
         "type": "string",
-        "label": "Bar widget shows: icon, temp or full",
-        "defaultValue": "temp"
+        "label": "Bar shows, comma separated: logo, mode, cpu, gpu, fan, gpuPower",
+        "defaultValue": "cpu"
       },
       {
         "key": "themeRgb",

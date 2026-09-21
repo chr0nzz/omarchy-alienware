@@ -287,7 +287,27 @@ func ParseNvidiaOutput(out string) (GPU, bool) {
 	return GPU{}, false
 }
 
+func (r *Reader) nvidiaAsleep() bool {
+	devices, err := filepath.Glob(r.path("sys/bus/pci/devices", "*"))
+	if err != nil {
+		return false
+	}
+	for _, dev := range devices {
+		vendor, _ := readTrimmed(filepath.Join(dev, "vendor"))
+		class, _ := readTrimmed(filepath.Join(dev, "class"))
+		if vendor != "0x10de" || !strings.HasPrefix(class, "0x03") {
+			continue
+		}
+		status, _ := readTrimmed(filepath.Join(dev, "power", "runtime_status"))
+		return status == "suspended"
+	}
+	return false
+}
+
 func (r *Reader) readGPU(w *warnings) GPU {
+	if r.nvidiaAsleep() {
+		return GPU{Asleep: true}
+	}
 	out, err := r.runNvidia()
 	if err != nil {
 		w.add("nvidia-smi unavailable")

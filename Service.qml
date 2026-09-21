@@ -59,7 +59,7 @@ Item {
 
   readonly property int pollInterval: Model.clampInterval(setting("pollInterval", 2))
   readonly property int hotTemp: Model.clampHot(setting("hotTemp", 90))
-  readonly property string display: Model.normalizeDisplay(setting("display", "temp"))
+  readonly property var barItems: Model.parseBarItems(setting("display", "cpu"))
   readonly property bool themeRgb: Model.boolOr(setting("themeRgb", false), false)
 
   property var status: Model.emptyStatus()
@@ -170,6 +170,7 @@ Item {
     brightness = parsed.brightness
     lightsOn = parsed.lightsOn
     themeSync = parsed.themeSync === undefined ? themeRgb === true : parsed.themeSync === true
+    batterySync = parsed.batterySync !== false
     curveInterval = parsed.curve.interval
     curveHysteresis = parsed.curve.hysteresis
     curveCpu = parsed.curve.cpu
@@ -229,6 +230,7 @@ Item {
       brightness: brightness,
       lightsOn: lightsOn,
       themeSync: themeSync,
+      batterySync: batterySync,
       curve: { interval: curveInterval, hysteresis: curveHysteresis, cpu: curveCpu, gpu: curveGpu }
     })))
   }
@@ -303,6 +305,7 @@ Item {
   }
 
   function pushChassis(label) {
+    if (!lightsOn) return false
     var map = root.rgbOverlay(Model.effectiveRegionColors(regionColors, regionOn))
     if (!Model.hasAnyKey(map)) return false
     enqueue(Model.cmdRgbSetMap(map), String(label || "Colour"))
@@ -346,7 +349,7 @@ Item {
   }
 
   function pushKeyboard(label) {
-    if (!root.kbd.present) return false
+    if (!root.kbd.present || !lightsOn) return false
     var map = root.kbdOverlay(Model.effectiveKeyColors(keyColors, keyOn))
     if (!Model.hasAnyKey(map)) return false
     enqueue(Model.cmdKbdSetMap(map), String(label || "Keyboard colour"))
@@ -785,6 +788,12 @@ Item {
     return setBrightness(Model.brightnessStep(brightness, delta))
   }
 
+  function reapplyLightsOff() {
+    enqueue(Model.cmdRgbOff(), "Lights off")
+    if (kbdPresent) enqueue(Model.cmdKbdOff(), "Keyboard off")
+    return false
+  }
+
   function lightsOff() {
     lightsOn = false
     enqueue(Model.cmdRgbOff(), "Lights off")
@@ -811,7 +820,7 @@ Item {
   }
 
   function restoreSavedLights() {
-    if (lightsOn !== true) return false
+    if (lightsOn !== true) return reapplyLightsOff()
     enqueue(Model.cmdRgbBrightness(brightness), "Brightness")
     return pushChassis("Colour")
   }
@@ -889,7 +898,10 @@ Item {
   }
 
   function restoreSavedKeyboard() {
-    if (lightsOn !== true) return false
+    if (lightsOn !== true) {
+      if (kbdPresent) enqueue(Model.cmdKbdOff(), "Keyboard off")
+      return false
+    }
     return pushKeyboard("Keyboard colour")
   }
 
@@ -902,16 +914,26 @@ Item {
 
   function toggleThemeSync() { return setThemeSync(!themeSync) }
 
+  function setBatterySync(on) {
+    batterySync = on === true
+    if (batterySync) readBattery()
+    pushChassis(batterySync ? "Battery on the power button" : "Power button colour")
+    scheduleSave()
+    return true
+  }
+
+  function toggleBatterySync() { return setBatterySync(!batterySync) }
+
   function applyThemeColor() {
     var hex = themeHex
     if (!hex) return false
     regionColors = allRegionsColorMap(hex)
     color = hex
-    lightsOn = true
-    enqueue(Model.cmdRgbSetMap(root.rgbOverlay(Model.effectiveRegionColors(regionColors, regionOn))), "Theme colour")
     keyColors = Model.themeKeyColorMap(hex)
-    pushKeyboard("Theme colour")
     scheduleSave()
+    if (!lightsOn) return false
+    enqueue(Model.cmdRgbSetMap(root.rgbOverlay(Model.effectiveRegionColors(regionColors, regionOn))), "Theme colour")
+    pushKeyboard("Theme colour")
     return true
   }
 

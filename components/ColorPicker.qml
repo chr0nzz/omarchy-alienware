@@ -4,31 +4,43 @@ import qs.Commons
 import qs.Ui
 import "../Model.js" as Model
 
-Column {
+Rectangle {
   id: root
 
   property string hex: ""
   property var swatches: []
   property bool themeEnabled: true
-  property bool expanded: false
+  property bool canApply: false
+  property string targetText: ""
   property color fg: Color.foreground
   property color dim: Qt.darker(fg, 1.5)
   property color accent: Color.accent
   property string fontFamily: Style.font.family
+  readonly property alias field: hexField
 
   signal picked(string hex)
+  signal applyRequested()
   signal themeColorRequested()
-
-  spacing: Style.space(8)
+  signal fieldEscaped()
 
   property real hue: 0
   property real sat: 0
-  property real val: 0
+  property real val: 100
   property bool syncingFromHex: false
   property string lastPicked: ""
 
-  readonly property bool showSwatches: root.swatches.length > 1 && !Model.paletteIsFlat(root.swatches)
-  readonly property color previewColor: Model.hexPreview(Model.hsvToHex(root.hue, root.sat, root.val))
+  readonly property bool valid: Model.validHex(root.hex)
+  readonly property color previewColor: root.valid ? Model.hexPreview(root.hex) : Util.alpha(root.fg, 0.08)
+  readonly property var themeChips: {
+    var list = Model.toList(root.swatches)
+    return list.length > 1 && !Model.paletteIsFlat(list) ? list : []
+  }
+
+  radius: Math.max(Style.cornerRadius, Style.space(4))
+  color: Style.normalFillFor(root.fg, root.accent)
+  border.color: Util.alpha(root.fg, 0.15)
+  border.width: Style.normalBorderWidth
+  implicitHeight: content.implicitHeight + Style.space(24)
 
   function syncFromHex(value) {
     var hsv = Model.hexToHsv(value)
@@ -46,56 +58,46 @@ Column {
     picked(lastPicked)
   }
 
-  onHexChanged: if (Model.normalizeHex(hex) !== root.lastPicked) syncFromHex(hex)
+  onHexChanged: {
+    if (hexField.text.toUpperCase() !== String(root.hex).toUpperCase()) hexField.text = root.hex
+    if (Model.normalizeHex(hex) !== root.lastPicked) syncFromHex(hex)
+  }
   onHueChanged: commitFromHsv()
   onSatChanged: commitFromHsv()
   onValChanged: commitFromHsv()
-  Component.onCompleted: syncFromHex(hex)
+  Component.onCompleted: { hexField.text = root.hex; syncFromHex(hex) }
 
-  Flow {
-    width: parent.width
-    spacing: Style.space(6)
+  component Chip: Rectangle {
+    id: chip
+    property string chipHex: ""
+    property string label: ""
+    readonly property bool current: Model.normalizeHex(chip.chipHex) === Model.normalizeHex(root.hex)
+    width: Style.space(22)
+    height: Style.space(22)
+    radius: Math.max(2, Style.cornerRadius / 2)
+    color: Model.hexPreview(chip.chipHex)
+    border.width: chip.current ? Math.max(2, Style.normalBorderWidth * 2) : Style.normalBorderWidth
+    border.color: chip.current ? root.fg : (chipMouse.containsMouse ? Util.alpha(root.fg, 0.7) : Util.alpha(root.fg, 0.25))
 
-    Button {
-      text: "Theme"
-      iconText: "󰏘"
-      bordered: true
-      enabled: root.themeEnabled
-      foreground: root.fg
-      accent: root.accent
-      fontFamily: root.fontFamily
-      fontSize: Style.font.caption
-      horizontalPadding: Style.space(8)
-      verticalPadding: Style.space(4)
-      tooltipText: "Paint every region with the theme colour now"
-      onClicked: root.themeColorRequested()
-    }
-
-    Repeater {
-      model: root.showSwatches ? root.swatches : []
-
-      Button {
-        required property var modelData
-        background: "#" + modelData.hex
-        bordered: true
-        foreground: root.fg
-        accent: root.accent
-        fontFamily: root.fontFamily
-        tooltipText: modelData.label
-        onClicked: root.picked(modelData.hex)
-      }
+    MouseArea {
+      id: chipMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: root.picked(Model.normalizeHex(chip.chipHex))
     }
   }
 
   Row {
-    id: pickerRow
-    width: parent.width
-    spacing: Style.space(12)
-    visible: root.expanded
+    id: content
+    x: Style.space(12)
+    y: Style.space(12)
+    width: root.width - Style.space(24)
+    spacing: Style.space(16)
 
     Item {
       id: wheel
-      width: Style.space(150)
+      width: Style.space(132)
       height: width
 
       readonly property real radius: width / 2
@@ -106,6 +108,7 @@ Column {
         var hs = Model.pointToHueSat((px - centerX) / radius, (centerY - py) / radius)
         root.hue = hs.h
         root.sat = hs.s
+        if (root.val < 15) root.val = 100
       }
 
       Shape {
@@ -119,7 +122,6 @@ Column {
             centerX: wheel.centerX
             centerY: wheel.centerY
             angle: 0
-
             GradientStop { position: 0 / 360; color: Model.hexPreview(Model.hsvToHex(0, 100, 100)) }
             GradientStop { position: 60 / 360; color: Model.hexPreview(Model.hsvToHex(60, 100, 100)) }
             GradientStop { position: 120 / 360; color: Model.hexPreview(Model.hsvToHex(120, 100, 100)) }
@@ -144,7 +146,6 @@ Column {
             focalX: wheel.centerX
             focalY: wheel.centerY
             focalRadius: 0
-
             GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 1) }
             GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, 0) }
           }
@@ -158,32 +159,48 @@ Column {
       Rectangle {
         anchors.fill: parent
         radius: wheel.radius
+        color: "black"
+        opacity: 1 - root.val / 100
+      }
+
+      Rectangle {
+        anchors.fill: parent
+        radius: wheel.radius
         color: "transparent"
-        border.color: Util.alpha(root.fg, 0.35)
+        border.color: Util.alpha(root.fg, 0.25)
         border.width: Style.normalBorderWidth
       }
 
       Rectangle {
-        id: wheelHandle
         readonly property var point: Model.hueSatToPoint(root.hue, root.sat)
-        width: Style.space(14)
+        width: Style.space(16)
         height: width
         radius: width / 2
-        color: "transparent"
-        border.color: root.fg
-        border.width: Style.space(2)
+        color: root.previewColor
+        border.color: "white"
+        border.width: Math.max(2, Style.space(2))
         x: wheel.centerX + point.x * wheel.radius - width / 2
         y: wheel.centerY - point.y * wheel.radius - height / 2
+
+        Rectangle {
+          anchors.fill: parent
+          anchors.margins: -1
+          radius: width / 2
+          color: "transparent"
+          border.color: "black"
+          border.width: 1
+          opacity: 0.5
+        }
       }
 
       MouseArea {
         anchors.fill: parent
         preventStealing: true
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: Qt.CrossCursor
         onPressed: function(mouse) {
           var dx = (mouse.x - wheel.centerX) / wheel.radius
           var dy = (mouse.y - wheel.centerY) / wheel.radius
-          if (dx * dx + dy * dy > 1) { mouse.accepted = false; return }
+          if (dx * dx + dy * dy > 1.05) { mouse.accepted = false; return }
           wheel.applyPoint(mouse.x, mouse.y)
         }
         onPositionChanged: function(mouse) { if (pressed) wheel.applyPoint(mouse.x, mouse.y) }
@@ -192,21 +209,17 @@ Column {
 
     Item {
       id: valueBar
-      width: Style.space(22)
+      width: Style.space(14)
       height: wheel.height
-      anchors.verticalCenter: parent.verticalCenter
-
-      readonly property real trackHeight: height
 
       function applyPoint(py) {
-        var frac = 1 - Math.max(0, Math.min(1, py / Math.max(1, trackHeight)))
-        root.val = frac * 100
+        root.val = Math.round((1 - Math.max(0, Math.min(1, py / Math.max(1, height)))) * 100)
       }
 
       Rectangle {
         anchors.fill: parent
-        radius: Style.cornerRadius
-        border.color: Util.alpha(root.fg, 0.35)
+        radius: width / 2
+        border.color: Util.alpha(root.fg, 0.25)
         border.width: Style.normalBorderWidth
         gradient: Gradient {
           orientation: Gradient.Vertical
@@ -216,35 +229,169 @@ Column {
       }
 
       Rectangle {
-        id: valueHandle
         width: parent.width + Style.space(6)
-        height: Style.space(4)
-        radius: Style.space(2)
+        height: Style.space(6)
+        radius: height / 2
         x: -Style.space(3)
-        y: Math.max(0, Math.min(valueBar.trackHeight - height, (1 - root.val / 100) * valueBar.trackHeight - height / 2))
-        color: root.fg
-        border.color: Color.background
-        border.width: Style.normalBorderWidth
+        y: Math.max(0, Math.min(valueBar.height - height, (1 - root.val / 100) * valueBar.height - height / 2))
+        color: "white"
+        border.color: "black"
+        border.width: 1
       }
 
       MouseArea {
         anchors.fill: parent
+        anchors.margins: -Style.space(4)
         preventStealing: true
         cursorShape: Qt.SizeVerCursor
-        onPressed: function(mouse) { valueBar.applyPoint(mouse.y) }
-        onPositionChanged: function(mouse) { if (pressed) valueBar.applyPoint(mouse.y) }
+        onPressed: function(mouse) { valueBar.applyPoint(mouse.y - Style.space(4)) }
+        onPositionChanged: function(mouse) { if (pressed) valueBar.applyPoint(mouse.y - Style.space(4)) }
       }
     }
-  }
 
-  Text {
-    width: parent.width
-    wrapMode: Text.Wrap
-    visible: root.expanded
-    textFormat: Text.PlainText
-    text: "Drag the wheel for hue and saturation, the bar for brightness. Set applies it."
-    color: root.dim
-    font.family: root.fontFamily
-    font.pixelSize: Style.font.caption
+    Column {
+      id: side
+      width: content.width - wheel.width - valueBar.width - content.spacing * 2
+      spacing: Style.space(12)
+
+      Row {
+        width: parent.width
+        spacing: Style.space(12)
+
+        Rectangle {
+          id: preview
+          width: Style.space(52)
+          height: Style.space(52)
+          radius: Math.max(Style.cornerRadius, Style.space(4))
+          color: root.previewColor
+          border.color: Util.alpha(root.fg, 0.3)
+          border.width: Style.normalBorderWidth
+          Behavior on color { ColorAnimation { duration: 120 } }
+        }
+
+        Column {
+          width: parent.width - preview.width - parent.spacing
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.space(6)
+
+          Row {
+            spacing: Style.space(6)
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: "#"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+
+            TextField {
+              id: hexField
+              width: Style.space(100)
+              placeholderText: "RRGGBB"
+              foreground: root.fg
+              font.family: root.fontFamily
+              onTextEdited: {
+                var clean = Model.normalizeHex(text)
+                if (clean) root.picked(clean)
+              }
+              Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                  var clean = Model.normalizeHex(hexField.text)
+                  if (clean) { root.picked(clean); root.applyRequested() }
+                  event.accepted = true
+                } else if (event.key === Qt.Key_Escape) {
+                  root.fieldEscaped()
+                  event.accepted = true
+                }
+              }
+            }
+          }
+
+          Button {
+            iconText: "󰸱"
+            text: root.canApply ? "Apply to " + root.targetText : "Select keys or regions"
+            bordered: true
+            selected: root.canApply && root.valid
+            enabled: root.canApply && root.valid
+            foreground: root.fg
+            accent: root.accent
+            fontFamily: root.fontFamily
+            fontSize: Style.font.caption
+            tooltipText: "Enter in the hex field does the same"
+            onClicked: root.applyRequested()
+          }
+        }
+      }
+
+      Column {
+        width: parent.width
+        spacing: Style.space(6)
+
+        Text {
+          text: "PRESETS"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.bold: true
+          font.letterSpacing: 1.2
+        }
+
+        Flow {
+          width: parent.width
+          spacing: Style.space(6)
+
+          Repeater {
+            model: Model.COLOR_PRESETS
+            Chip { required property var modelData; chipHex: modelData.hex; label: modelData.label }
+          }
+        }
+      }
+
+      Column {
+        width: parent.width
+        spacing: Style.space(6)
+
+        Item {
+          width: parent.width
+          height: themeLabel.implicitHeight
+
+          Text {
+            id: themeLabel
+            text: "THEME"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+            font.letterSpacing: 1.2
+          }
+        }
+
+        Flow {
+          width: parent.width
+          spacing: Style.space(6)
+
+          Button {
+            iconText: "󰏘"
+            text: "Paint all with theme"
+            bordered: true
+            enabled: root.themeEnabled
+            foreground: root.fg
+            accent: root.accent
+            fontFamily: root.fontFamily
+            fontSize: Style.font.caption
+            horizontalPadding: Style.space(8)
+            verticalPadding: Style.space(2)
+            tooltipText: "Paint every key and region with the theme accent now"
+            onClicked: root.themeColorRequested()
+          }
+
+          Repeater {
+            model: root.themeChips
+            Chip { required property var modelData; chipHex: modelData.hex; label: modelData.label }
+          }
+        }
+      }
+    }
   }
 }

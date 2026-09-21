@@ -3,7 +3,7 @@ import qs.Commons
 import qs.Ui
 import "../Model.js" as Model
 
-Item {
+Rectangle {
   id: root
 
   property bool present: true
@@ -17,52 +17,41 @@ Item {
   property color accent: Color.accent
   property string fontFamily: Style.font.family
 
-  property color powerColor: Qt.darker(Color.foreground, 1.5)
-  property string powerTooltip: ""
+  property color powerColor: "#8a8a96"
+  property bool powerLit: false
+  property bool powerSelected: false
+  property bool powerLocked: false
 
   signal toggleRequested(string keyId)
   signal dragSelectRequested(var keyIds)
   signal powerClicked()
 
-  readonly property real keyHeight: Style.space(28)
+  readonly property color deckColor: "#0d0d11"
+  readonly property color capColor: "#1a1a20"
+  readonly property color capEdge: "#26262e"
+  readonly property color unlitLegend: "#5a5a66"
+  readonly property color offLegend: "#34343c"
+
+  readonly property real pad: Style.space(8)
+  readonly property real keyHeight: Style.space(30)
   readonly property real rowGap: Style.space(4)
-  readonly property real keyGap: Style.space(3)
+  readonly property real keyGap: Style.space(4)
   readonly property real mediaWidth: Style.space(46)
   readonly property int rowCount: Model.toList(root.rows).length
-  readonly property real powerSize: root.keyHeight
-  readonly property real topRowHeight: root.powerSize + root.rowGap
+  readonly property real innerWidth: root.width - root.pad * 2
+  readonly property real topRowHeight: root.keyHeight + root.rowGap
   readonly property int topRowKeys: 16
-  readonly property real topKeyWidth: (root.width - root.keyGap * (root.topRowKeys - 1)) / root.topRowKeys
+  readonly property real topKeyWidth: (root.innerWidth - root.keyGap * (root.topRowKeys - 1)) / root.topRowKeys
   readonly property real endKeyX: (root.topKeyWidth + root.keyGap) * 14
 
   visible: root.present
-  implicitWidth: parent ? parent.width : 0
-  implicitHeight: root.present ? root.topRowHeight + root.rowCount * root.keyHeight + Math.max(0, root.rowCount - 1) * root.rowGap : 0
-
-  Item {
-    id: powerTile
-    x: root.endKeyX + (root.topKeyWidth - root.powerSize) / 2
-    y: 0
-    width: root.powerSize
-    height: root.powerSize
-
-    Text {
-      anchors.centerIn: parent
-      textFormat: Text.PlainText
-      text: "\uDB82\uDC9A"
-      color: root.powerColor
-      font.family: root.fontFamily
-      font.pixelSize: root.powerSize * 0.82
-      horizontalAlignment: Text.AlignHCenter
-    }
-
-    MouseArea {
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onClicked: root.powerClicked()
-    }
-  }
+  implicitHeight: root.present
+    ? root.pad * 2 + root.topRowHeight + root.rowCount * root.keyHeight + Math.max(0, root.rowCount - 1) * root.rowGap
+    : 0
+  radius: Math.max(Style.cornerRadius, Style.space(4))
+  color: root.deckColor
+  border.color: Util.alpha(root.fg, 0.15)
+  border.width: Style.normalBorderWidth
 
   function isSelected(id) {
     return Model.toList(root.selection).indexOf(id) !== -1
@@ -101,135 +90,168 @@ Item {
     else if (run.length === 1) root.toggleRequested(run[0])
   }
 
-  Column {
-    id: rowsColumn
-    anchors.left: parent.left
-    anchors.top: parent.top
-    anchors.topMargin: root.topRowHeight
-    width: parent.width
-    spacing: root.rowGap
+  component KeyCap: Rectangle {
+    id: cap
 
-    Repeater {
-      model: root.rows
+    property var keyDef: null
+    property string legend: ""
+    property string swatch: ""
+    property bool paintable: true
+    property bool lit: true
+    property bool picked: false
+    property bool hot: capMouse.containsMouse
+    property bool clickable: paintable
 
-      Row {
-        id: krow
-        required property var modelData
-        required property int index
-        width: krow.spansFullWidth ? rowsColumn.width : rowsColumn.width - root.mediaWidth - root.rowGap
-        height: root.keyHeight
-        readonly property bool spansFullWidth: krow.index === 0 || krow.index === root.rows.length - 1
-        spacing: root.keyGap
-        readonly property real weight: Model.keyboardRowWeight(krow.modelData)
+    signal pressedKey()
+    signal enteredKey()
+    signal releasedKey()
 
-        Repeater {
-          model: krow.modelData
+    readonly property bool glowing: paintable && lit && swatch !== ""
+    readonly property color legendColor: {
+      if (!paintable) return root.offLegend
+      if (!lit) return root.offLegend
+      return swatch !== "" ? swatch : root.unlitLegend
+    }
 
-          Rectangle {
-            id: keyTile
-            required property var modelData
-            readonly property var keyDef: keyTile.modelData
-            readonly property bool paintable: Model.isKeyPaintable(keyTile.keyDef)
-            readonly property bool selected: root.isSelected(keyTile.keyDef.id)
-            readonly property string swatch: root.swatchFor(keyTile.keyDef)
-            readonly property bool keyIsOn: root.isKeyOn(keyTile.keyDef)
+    radius: Math.max(2, Style.cornerRadius / 2)
+    color: {
+      var base = cap.hot && cap.clickable ? Qt.lighter(root.capColor, 1.35) : root.capColor
+      return cap.glowing ? Qt.tint(base, Util.alpha(cap.swatch, 0.16)) : base
+    }
+    border.width: cap.picked ? Math.max(2, Style.normalBorderWidth * 2) : Style.normalBorderWidth
+    border.color: cap.picked ? root.accent : root.capEdge
+    opacity: cap.paintable ? 1.0 : 0.55
 
-            width: Math.max(Style.space(14), (krow.width - krow.spacing * (krow.modelData.length - 1)) * keyTile.keyDef.w / krow.weight)
-            height: krow.height
-            radius: Style.cornerRadius
-            color: {
-              if (!keyTile.paintable) return Util.alpha(root.fg, 0.05)
-              if (keyTile.swatch !== "") return Util.alpha(keyTile.swatch, keyTile.keyIsOn ? 1.0 : 0.35)
-              return Util.alpha(root.fg, keyTile.keyIsOn ? 0.12 : 0.05)
-            }
-            border.width: keyTile.selected ? Style.normalBorderWidth * 2 : Style.normalBorderWidth
-            border.color: keyTile.selected ? root.accent : Util.alpha(root.fg, keyTile.paintable ? 0.35 : 0.15)
-            opacity: keyTile.paintable ? 1.0 : 0.45
+    Text {
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: cap.legend
+      color: cap.legendColor
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      font.bold: cap.glowing || cap.picked
+      fontSizeMode: Text.HorizontalFit
+      minimumPixelSize: Math.max(6, Style.font.caption - 4)
+      elide: Text.ElideRight
+      width: parent.width - Style.space(4)
+      horizontalAlignment: Text.AlignHCenter
+      Behavior on color { ColorAnimation { duration: 140 } }
+    }
 
-            Text {
-              anchors.centerIn: parent
-              textFormat: Text.PlainText
-              text: keyTile.keyDef.label
-              color: keyTile.paintable && keyTile.keyIsOn ? root.fg : root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: keyTile.selected
-              fontSizeMode: Text.HorizontalFit
-              minimumPixelSize: Math.max(6, Style.font.caption - 4)
-              elide: Text.ElideRight
-              width: parent.width - Style.space(2)
-              horizontalAlignment: Text.AlignHCenter
-            }
+    MouseArea {
+      id: capMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      enabled: cap.clickable
+      cursorShape: cap.clickable ? Qt.PointingHandCursor : Qt.ArrowCursor
+      onPressed: cap.pressedKey()
+      onEntered: { if (pressed) cap.enteredKey() }
+      onReleased: cap.releasedKey()
+    }
+  }
 
-            MouseArea {
-              anchors.fill: parent
-              hoverEnabled: true
-              enabled: keyTile.paintable
-              cursorShape: keyTile.paintable ? Qt.PointingHandCursor : Qt.ArrowCursor
-              onPressed: root.beginDrag(keyTile.keyDef.id)
-              onEntered: if (pressed) root.extendDrag(keyTile.keyDef.id)
-              onReleased: root.endDrag()
+  Item {
+    id: inner
+    x: root.pad
+    y: root.pad
+    width: root.innerWidth
+    height: root.height - root.pad * 2
+
+    KeyCap {
+      id: powerCap
+      x: root.endKeyX
+      y: 0
+      width: root.topKeyWidth
+      height: root.keyHeight
+      legend: "⏻"
+      swatch: root.powerLit ? root.powerColor : ""
+      lit: root.powerLit
+      picked: root.powerSelected
+      clickable: true
+      onReleasedKey: root.powerClicked()
+    }
+
+    Text {
+      x: 0
+      y: 0
+      height: root.keyHeight
+      verticalAlignment: Text.AlignVCenter
+      textFormat: Text.PlainText
+      text: "ALIENWARE"
+      color: root.unlitLegend
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      font.letterSpacing: 3
+      font.bold: true
+      opacity: 0.6
+    }
+
+    Column {
+      id: rowsColumn
+      anchors.left: parent.left
+      anchors.top: parent.top
+      anchors.topMargin: root.topRowHeight
+      width: parent.width
+      spacing: root.rowGap
+
+      Repeater {
+        model: root.rows
+
+        Row {
+          id: krow
+          required property var modelData
+          required property int index
+          width: krow.spansFullWidth ? rowsColumn.width : rowsColumn.width - root.mediaWidth - root.rowGap
+          height: root.keyHeight
+          readonly property bool spansFullWidth: krow.index === 0 || krow.index === root.rows.length - 1
+          spacing: root.keyGap
+          readonly property real weight: Model.keyboardRowWeight(krow.modelData)
+
+          Repeater {
+            model: krow.modelData
+
+            KeyCap {
+              required property var modelData
+              keyDef: modelData
+              width: Math.max(Style.space(14), (krow.width - krow.spacing * (krow.modelData.length - 1)) * modelData.w / krow.weight)
+              height: krow.height
+              legend: modelData.label
+              paintable: Model.isKeyPaintable(modelData)
+              swatch: root.swatchFor(modelData)
+              lit: root.isKeyOn(modelData)
+              picked: root.isSelected(modelData.id)
+              onPressedKey: root.beginDrag(modelData.id)
+              onEnteredKey: root.extendDrag(modelData.id)
+              onReleasedKey: root.endDrag()
             }
           }
         }
       }
     }
-  }
 
-  Column {
-    id: mediaColumnItem
-    x: rowsColumn.width - root.mediaWidth
-    y: root.topRowHeight + root.keyHeight + root.rowGap
-    width: root.mediaWidth
-    spacing: root.rowGap
+    Column {
+      id: mediaColumnItem
+      x: rowsColumn.width - root.mediaWidth
+      y: root.topRowHeight + root.keyHeight + root.rowGap
+      width: root.mediaWidth
+      spacing: root.rowGap
 
-    Repeater {
-      model: root.mediaColumn
+      Repeater {
+        model: root.mediaColumn
 
-      Rectangle {
-        id: mediaTile
-        required property var modelData
-        readonly property var keyDef: mediaTile.modelData
-        readonly property bool paintable: Model.isKeyPaintable(mediaTile.keyDef)
-        readonly property bool selected: root.isSelected(mediaTile.keyDef.id)
-        readonly property string swatch: root.swatchFor(mediaTile.keyDef)
-        readonly property bool keyIsOn: root.isKeyOn(mediaTile.keyDef)
-
-        width: mediaColumnItem.width
-        height: root.keyHeight
-        radius: Style.cornerRadius
-        color: {
-          if (!mediaTile.paintable) return Util.alpha(root.fg, 0.05)
-          if (mediaTile.swatch !== "") return Util.alpha(mediaTile.swatch, mediaTile.keyIsOn ? 1.0 : 0.35)
-          return Util.alpha(root.fg, mediaTile.keyIsOn ? 0.12 : 0.05)
-        }
-        border.width: mediaTile.selected ? Style.normalBorderWidth * 2 : Style.normalBorderWidth
-        border.color: mediaTile.selected ? root.accent : Util.alpha(root.fg, mediaTile.paintable ? 0.35 : 0.15)
-        opacity: mediaTile.paintable ? 1.0 : 0.45
-
-        Text {
-          anchors.centerIn: parent
-          textFormat: Text.PlainText
-          text: mediaTile.keyDef.label
-          color: mediaTile.paintable && mediaTile.keyIsOn ? root.fg : root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.bold: mediaTile.selected
-          fontSizeMode: Text.HorizontalFit
-          minimumPixelSize: Math.max(6, Style.font.caption - 4)
-          elide: Text.ElideRight
-          width: parent.width - Style.space(2)
-          horizontalAlignment: Text.AlignHCenter
-        }
-
-        MouseArea {
-          anchors.fill: parent
-          hoverEnabled: true
-          enabled: mediaTile.paintable
-          cursorShape: mediaTile.paintable ? Qt.PointingHandCursor : Qt.ArrowCursor
-          onPressed: root.beginDrag(mediaTile.keyDef.id)
-          onEntered: if (pressed) root.extendDrag(mediaTile.keyDef.id)
-          onReleased: root.endDrag()
+        KeyCap {
+          required property var modelData
+          keyDef: modelData
+          width: mediaColumnItem.width
+          height: root.keyHeight
+          legend: modelData.label
+          paintable: Model.isKeyPaintable(modelData)
+          swatch: root.swatchFor(modelData)
+          lit: root.isKeyOn(modelData)
+          picked: root.isSelected(modelData.id)
+          onPressedKey: root.beginDrag(modelData.id)
+          onEnteredKey: root.extendDrag(modelData.id)
+          onReleasedKey: root.endDrag()
         }
       }
     }

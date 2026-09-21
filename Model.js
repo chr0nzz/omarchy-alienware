@@ -69,6 +69,28 @@ var PL_LOCKED_NOTE = "Locked by firmware"
 var EFFECTS_NOTE = "Effects are not implemented yet. Set a colour for the selected regions instead."
 var KBD_UNMAPPED_NOTE = "Greyed out keys have not had their wire index confirmed yet and cannot take a colour."
 
+var COLOR_PRESETS = [
+  { hex: "FF0000", label: "Red" },
+  { hex: "FF5A00", label: "Orange" },
+  { hex: "FFC800", label: "Amber" },
+  { hex: "00FF4C", label: "Green" },
+  { hex: "00E5FF", label: "Cyan" },
+  { hex: "0050FF", label: "Blue" },
+  { hex: "7A00FF", label: "Violet" },
+  { hex: "FF00B4", label: "Magenta" },
+  { hex: "FFFFFF", label: "White" }
+]
+
+function selectionSummary(keyCount, regionIds) {
+  var keys = Math.max(0, toInt(keyCount, 0))
+  var regions = toList(regionIds)
+  var parts = []
+  if (keys > 0) parts.push(keys + (keys === 1 ? " key" : " keys"))
+  if (regions.length === 1 && regions[0] === "power") parts.push("the power button")
+  else if (regions.length > 0) parts.push(regions.length + (regions.length === 1 ? " region" : " regions"))
+  return parts.join(" and ")
+}
+
 var REGIONS = [
   { id: "power", name: "Power button", ledCount: 1 },
   { id: "logo", name: "Lid logo", ledCount: 1 },
@@ -189,13 +211,6 @@ function clampHysteresis(value) { return clampInt(value, HYSTERESIS_MIN, HYSTERE
 function clampHot(value) { return clampInt(value, HOT_MIN, HOT_MAX, HOT_DEFAULT) }
 function clampBoost(value) { return clampInt(value, BOOST_MIN, BOOST_MAX, 0) }
 function clampBrightness(value) { return clampInt(value, 0, 100, 100) }
-
-function normalizeDisplay(value) {
-  var s = String(value === undefined || value === null ? "" : value).toLowerCase().trim()
-  if (s === "temp" || s === "compact") return "temp"
-  if (s === "full" || s === "expanded") return "full"
-  return "icon"
-}
 
 function parseJson(text) {
   var raw = String(text === undefined || text === null ? "" : text).trim()
@@ -328,6 +343,7 @@ function normalizeGpu(raw) {
   var src = isObject(raw) ? raw : {}
   return {
     available: src.available === true,
+    asleep: src.asleep === true,
     draw: toNumber(src.draw, NaN),
     limit: toNumber(src.limit, NaN),
     defaultLimit: toNumber(src.defaultLimit, NaN),
@@ -1246,47 +1262,117 @@ function healthLine(health, lastResult, status) {
   return "Ready"
 }
 
-function barState(status, health, display, hot) {
-  var mode = normalizeDisplay(display)
+var BAR_ITEMS = [
+  { id: "logo", label: "Alien logo", glyph: "󰢚" },
+  { id: "mode", label: "Thermal mode", glyph: "󰾅" },
+  { id: "cpu", label: "CPU temp", glyph: "󰻠" },
+  { id: "gpu", label: "GPU temp", glyph: "󰢮" },
+  { id: "fan", label: "Fan speed", glyph: "󰈐" },
+  { id: "gpuPower", label: "GPU power", glyph: "󱐋" }
+]
+
+var BAR_LEGACY = {
+  icon: ["logo"],
+  temp: ["cpu"],
+  compact: ["cpu"],
+  full: ["mode", "fan", "gpu"],
+  expanded: ["mode", "fan", "gpu"]
+}
+
+function barItemIds() {
+  var out = []
+  for (var i = 0; i < BAR_ITEMS.length; i++) out.push(BAR_ITEMS[i].id)
+  return out
+}
+
+function barItemGlyph(id) {
+  for (var i = 0; i < BAR_ITEMS.length; i++) if (BAR_ITEMS[i].id === id) return BAR_ITEMS[i].glyph
+  return GLYPHS.alien
+}
+
+function parseBarItems(value) {
+  var raw = []
+  if (typeof value === "string") {
+    var key = value.toLowerCase().trim()
+    if (BAR_LEGACY[key]) raw = BAR_LEGACY[key].slice()
+    else raw = key.split(/[\s,]+/)
+  } else {
+    raw = toList(value).map(function(v) { return String(v || "").trim() })
+  }
+  var known = barItemIds()
+  var out = []
+  for (var i = 0; i < known.length; i++) {
+    for (var j = 0; j < raw.length; j++) {
+      if (String(raw[j]).toLowerCase() === known[i].toLowerCase()) { out.push(known[i]); break }
+    }
+  }
+  return out.length ? out : ["logo"]
+}
+
+function serializeBarItems(list) {
+  return parseBarItems(list).join(",")
+}
+
+function toggleBarItem(list, id) {
+  var current = parseBarItems(list)
+  var idx = current.indexOf(id)
+  if (idx === -1) current.push(id)
+  else if (current.length > 1) current.splice(idx, 1)
+  return parseBarItems(current)
+}
+
+function formatRpmShort(rpm) {
+  var n = toNumber(rpm, NaN)
+  if (!isFinite(n)) return "-"
+  if (n <= 0) return "0"
+  if (n < 1000) return String(Math.round(n))
+  return (n / 1000).toFixed(1) + "k"
+}
+
+function barView(status, health, items, hot) {
+  var list = parseBarItems(items)
   var threshold = clampHot(hot)
-  var view = mode === "full" ? "expanded" : (mode === "temp" ? "compact" : "icon")
   var h = String(health || "missing")
   if (h === "missing" || h === "error") {
     return {
       state: h,
-      view: "icon",
-      text: "",
       tone: h === "missing" ? "muted" : "warn",
-      glyph: GLYPHS.missing
+      segments: [{ id: "logo", glyph: GLYPHS.missing, text: "", alert: h === "error" }]
     }
   }
-  var temp = hottest(status)
   var cpuTemp = status && typeof status.temps.cpu === "number" ? status.temps.cpu : NaN
   var gpuTemp = status && typeof status.temps.gpu === "number" ? status.temps.gpu : NaN
-  var warning = isFinite(temp) && temp >= threshold
+  var cpuHot = isFinite(cpuTemp) && cpuTemp >= threshold
+  var gpuHot = isFinite(gpuTemp) && gpuTemp >= threshold
+  var warning = cpuHot || gpuHot
   var stopped = fansStopped(status)
   var state = warning ? "warning" : (stopped ? "stopped" : (h === "stale" ? "stale" : "ok"))
-  if (warning && view === "icon") view = "compact"
-  var text = ""
-  if (view === "compact") {
-    text = formatTemp(isFinite(cpuTemp) ? cpuTemp : temp, false)
-  } else if (view === "expanded") {
-    var parts = []
-    if (status && status.profile.current) parts.push(profileLabel(status.profile.current, status.profile.gmodeForced))
-    parts.push(stopped ? "0 rpm" : maxRpm(status) + " rpm")
-    if (isFinite(gpuTemp)) parts.push(formatTemp(gpuTemp, false))
-    else if (isFinite(cpuTemp)) parts.push(formatTemp(cpuTemp, false))
-    text = parts.join(" · ")
+  var heatShown = (cpuHot && list.indexOf("cpu") !== -1) || (gpuHot && list.indexOf("gpu") !== -1)
+  var segments = []
+  for (var i = 0; i < list.length; i++) {
+    var id = list[i]
+    if (id === "logo") {
+      var hotLogo = warning && !heatShown
+      segments.push({ id: id, glyph: hotLogo ? GLYPHS.hot : GLYPHS.alien, text: "", alert: hotLogo })
+    } else if (id === "mode") {
+      var current = status && status.profile ? status.profile.current : ""
+      segments.push({ id: id, glyph: current ? profileGlyph(current) : barItemGlyph("mode"), text: "", alert: false })
+    } else if (id === "cpu") {
+      segments.push({ id: id, glyph: barItemGlyph("cpu"), text: isFinite(cpuTemp) ? formatTemp(cpuTemp, false) : "-", alert: cpuHot })
+    } else if (id === "gpu") {
+      segments.push({ id: id, glyph: barItemGlyph("gpu"), text: isFinite(gpuTemp) ? formatTemp(gpuTemp, false) : "off", alert: gpuHot })
+    } else if (id === "fan") {
+      segments.push({ id: id, glyph: barItemGlyph("fan"), text: formatRpmShort(stopped ? 0 : maxRpm(status)), alert: false })
+    } else if (id === "gpuPower") {
+      var gpu = status && status.gpu ? status.gpu : null
+      var draw = gpu && gpu.available ? toNumber(gpu.draw, NaN) : NaN
+      segments.push({ id: id, glyph: barItemGlyph("gpuPower"), text: isFinite(draw) ? Math.round(draw) + "W" : (gpu && gpu.asleep ? "zz" : "off"), alert: false })
+    }
   }
-  var tone = "normal"
-  if (state === "warning") tone = "warn"
-  else if (state === "stale") tone = "muted"
   return {
     state: state,
-    view: view,
-    text: text,
-    tone: tone,
-    glyph: warning ? GLYPHS.hot : GLYPHS.alien
+    tone: warning ? "warn" : (state === "stale" ? "muted" : "normal"),
+    segments: segments
   }
 }
 
@@ -1323,6 +1409,7 @@ function parseState(raw) {
     brightness: src.brightness === undefined || src.brightness === null ? 100 : clampBrightness(src.brightness),
     lightsOn: src.lightsOn !== false,
     themeSync: src.themeSync === true,
+    batterySync: src.batterySync !== false,
     curve: {
       interval: clampInterval(src.curve && src.curve.interval),
       hysteresis: clampHysteresis(src.curve && src.curve.hysteresis),
@@ -1345,6 +1432,7 @@ function buildStatePayload(state) {
     brightness: clampBrightness(src.brightness),
     lightsOn: src.lightsOn !== false,
     themeSync: src.themeSync === true,
+    batterySync: src.batterySync !== false,
     curve: buildCurvePayload(
       src.curve ? src.curve.interval : 2,
       src.curve ? src.curve.hysteresis : 3,

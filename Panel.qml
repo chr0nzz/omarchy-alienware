@@ -36,6 +36,7 @@ Panel {
   }
 
   function onOpened() {
+    if (!Model.validHex(pickedHex) && service) pickedHex = Model.normalizeHex(service.color) || service.themeHex || "FF0000"
     statusIndex = 0
     settingsOpen = false
     settingsStatus = ""
@@ -79,9 +80,9 @@ Panel {
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   readonly property var tabs: [
-    { key: "fans", label: "Fans" },
-    { key: "rgb", label: "RGB" },
-    { key: "power", label: "Power" }
+    { key: "fans", label: "Fans", icon: "󰈐" },
+    { key: "rgb", label: "Lighting", icon: "󰌌" },
+    { key: "power", label: "Power", icon: "󱐋" }
   ]
   property string tab: "fans"
 
@@ -133,10 +134,14 @@ Panel {
   property bool pickerOpen: false
 
   readonly property var batteryState: root.service ? root.service.battery : ({ ok: false })
-  readonly property color powerButtonColor: {
-    var hex = Model.batteryColor(root.batteryState)
-    return hex === "" ? root.dim : Model.hexPreview(hex)
+  readonly property bool batteryOnPower: root.service ? root.service.batterySync : true
+  readonly property string powerButtonHex: {
+    if (root.batteryOnPower) return Model.batteryColor(root.batteryState)
+    if (root.service && root.service.regionOn["power"] === false) return ""
+    return root.service ? Model.normalizeHex(root.service.regionColors["power"]) : ""
   }
+  readonly property bool powerButtonLit: root.powerButtonHex !== ""
+  readonly property color powerButtonColor: root.powerButtonLit ? Model.hexPreview(root.powerButtonHex) : root.dim
   readonly property string batteryLine: {
     var b = root.batteryState
     if (!b || b.ok !== true || b.percent < 0) return "battery state unavailable"
@@ -201,8 +206,7 @@ Panel {
   property bool settingsError: false
   property string dPoll: "2"
   property string dHot: "90"
-  property string dDisplay: "temp"
-  property bool dThemeRgb: false
+  property string dDisplay: "cpu"
 
   readonly property string heroGlyph: "󰢚"
 
@@ -353,18 +357,35 @@ Panel {
     service.toggleKeyOn(ids)
   }
 
+  property string pickedHex: ""
+  readonly property var paintRegions: {
+    if (rgbSubTabEffective === "keyboard") return regionSelection.indexOf("power") !== -1 ? ["power"] : []
+    return regionSelection
+  }
+  readonly property var paintKeys: rgbSubTabEffective === "keyboard" ? keySelection : []
+  readonly property string paintTarget: Model.selectionSummary(paintKeys.length, paintRegions)
+
   function applyColorField() {
     if (!service) return
-    var text = colorField.text
-    if (!Model.validHex(text)) {
+    if (!Model.validHex(pickedHex)) {
       service.reportAction(false, "Enter a colour as RRGGBB")
       return
     }
-    if (keySelection.length) {
-      service.setKeyColors(keySelection, text)
+    if (!paintKeys.length && !paintRegions.length) {
+      service.reportAction(false, rgbSubTabEffective === "keyboard" ? "Select some keys first" : "Select a region first")
       return
     }
-    service.setRegionColors(regionSelection, text)
+    if (paintKeys.length) service.setKeyColors(paintKeys, pickedHex)
+    if (paintRegions.length) service.setRegionColors(paintRegions, pickedHex)
+  }
+
+  function pickPowerKey() {
+    if (!service) return
+    if (service.batterySync) {
+      service.reportAction(false, "The power button shows battery status. Turn off Battery on power button to colour it.")
+      return
+    }
+    toggleRegionSelection("power")
   }
 
   function refocusPanel() {
@@ -383,8 +404,7 @@ Panel {
   function loadDraft() {
     dPoll = String(Model.clampInterval(currentSetting("pollInterval", 2)))
     dHot = String(Model.clampHot(currentSetting("hotTemp", 90)))
-    dDisplay = Model.normalizeDisplay(currentSetting("display", "temp"))
-    dThemeRgb = Model.boolOr(currentSetting("themeRgb", false), false)
+    dDisplay = Model.serializeBarItems(currentSetting("display", "cpu"))
     sPoll.text = dPoll
     sHot.text = dHot
   }
@@ -424,8 +444,7 @@ Panel {
     for (var k in settings) if (k !== "id") entry[k] = settings[k]
     entry.pollInterval = poll
     entry.hotTemp = hot
-    entry.display = Model.normalizeDisplay(dDisplay)
-    entry.themeRgb = dThemeRgb
+    entry.display = Model.serializeBarItems(dDisplay)
     root.bar.shell.updateEntryInline(root.moduleName, entry)
     settingsError = false
     settingsStatus = "Saved"
@@ -446,19 +465,19 @@ Panel {
 
   readonly property string footerText: {
     if (settingsOpen) return "⏎ save · esc cancel"
-    if (tab === "fans") return "h/l tab · j/k point · +/- boost · 1-4 preset · a apply · s settings · esc"
+    if (tab === "fans") return "h/l tab · p mode · j/k point · +/- boost · 1-4 preset · f fan · a apply · x stop · esc"
     if (tab === "rgb") {
       var rgbParts = ["h/l tab"]
       if (kbdPresent) rgbParts.push("H/L surface")
       if (rgbSubTabEffective === "chassis") { rgbParts.push("j/k region", "space select", "a/x regions", "i identify") }
       else { rgbParts.push("click/drag keys", "K/X keys") }
-      rgbParts.push("p power", "c colour", "t theme sync", "esc")
+      rgbParts.push("p on/off", "c colour", "t theme", "b battery", "esc")
       return rgbParts.join(" · ")
     }
-    return "h/l tab · j/k field · +/- adjust · 1-4 mode · p profiles · w save · esc"
+    return "h/l tab · p mode · 1-4 mode · j/k field · +/- adjust · t turbo · esc"
   }
 
-  readonly property string editorFocusBlock: colorField.activeFocus || sPoll.activeFocus || sHot.activeFocus ? "yes" : ""
+  readonly property string editorFocusBlock: colorPicker.field.activeFocus || sPoll.activeFocus || sHot.activeFocus ? "yes" : ""
 
   function handleTextKey(t) {
     if (!service) return
@@ -490,7 +509,8 @@ Panel {
     }
     if (tab === "rgb") {
       switch (t) {
-      case "c": Qt.callLater(function() { colorField.forceActiveFocus(); colorField.selectAll() }); break
+      case "c": Qt.callLater(function() { colorPicker.field.forceActiveFocus(); colorPicker.field.selectAll() }); break
+      case "b": service.toggleBatterySync(); break
       case "t": service.toggleThemeSync(); break
       case "o": service.toggleLights(); break
       case "H": moveRgbSubTab(-1); break
@@ -577,7 +597,7 @@ Panel {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             text: root.heroGlyph
-            color: root.available ? root.fg : root.dim
+            color: root.available ? root.accent : root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.display
             opacity: root.available ? 1.0 : 0.5
@@ -593,7 +613,7 @@ Panel {
             spacing: Style.space(2)
 
             Text {
-              text: "Alienware"
+              text: root.hw.model ? String(root.hw.model) : "Alienware"
               color: root.fg
               font.family: root.fontFamily
               font.pixelSize: Style.font.title
@@ -605,7 +625,7 @@ Panel {
             Text {
               textFormat: Text.PlainText
               text: root.statusCaps
-              color: root.health === "error" || root.health === "missing" ? root.urgentColor : Qt.darker(root.fg, 1.4)
+              color: root.health === "error" || root.health === "missing" ? root.urgentColor : root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               font.bold: true
@@ -621,14 +641,6 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
 
-            PanelActionButton {
-              iconText: Model.profileGlyph(root.hw.profile.current)
-              tooltipText: "Cycle the thermal profile (p)"
-              enabled: root.available
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              onClicked: if (root.service) root.service.cycleProfile(1)
-            }
             PanelActionButton {
               iconText: root.service && root.service.lightsOn ? "󱄄" : "󰛨"
               tooltipText: root.service && root.service.lightsOn ? "Turn the lights off (o)" : "Turn the lights on (o)"
@@ -656,12 +668,9 @@ Panel {
           }
         }
 
-        PanelSeparator { foreground: root.fg }
-
-        Column {
-          width: parent.width
-          spacing: Style.space(6)
+        Card {
           visible: root.health === "missing" && !root.settingsOpen
+          edge: root.urgentColor
 
           Text {
             width: parent.width
@@ -670,58 +679,174 @@ Panel {
             color: root.urgentColor
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
+            font.bold: true
           }
 
           Text {
             width: parent.width
             wrapMode: Text.Wrap
-            text: "The helper is not installed. It opens a terminal so you can see every command before it runs."
+            text: "The alienwarectl helper is not installed. The button opens a terminal so you can see every command before it runs. By hand: cd packaging/bin && makepkg -si"
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
 
           Button {
+            iconText: "󰏗"
             text: "Install the helper"
             bordered: true
             focusable: true
             foreground: root.fg
             fontFamily: root.fontFamily
             fontSize: Style.font.caption
-            tooltipText: "Opens a terminal running packaging/bin makepkg -si"
             onClicked: if (root.service) root.service.installHelper()
+          }
+        }
+
+        Card {
+          id: modeCard
+          visible: !root.settingsOpen && root.available
+
+          CardTitle {
+            title: "THERMAL MODE"
+            detail: root.hw.profile.current ? Model.profileLabel(root.hw.profile.current, root.hw.profile.gmodeForced) : ""
+          }
+
+          Row {
+            id: modeRow
+            width: parent.width
+            spacing: Style.space(4)
+            readonly property var choices: root.service ? Model.toList(root.service.profileChoices) : []
+            readonly property real cell: choices.length ? (width - spacing * (choices.length - 1)) / choices.length : width
+
+            Repeater {
+              model: modeRow.choices
+
+              Rectangle {
+                id: modeTile
+                required property var modelData
+                required property int index
+                readonly property bool current: root.hw.profile.current === modelData
+                readonly property bool usable: root.available && root.hw.profile.writable
+                width: modeRow.cell
+                height: modeCol.implicitHeight + Style.space(14)
+                radius: Math.max(Style.cornerRadius, Style.space(3))
+                color: current ? Util.alpha(root.accent, 0.22) : (modeMouse.containsMouse && usable ? Style.hoverFillFor(root.fg, root.accent) : "transparent")
+                border.width: current ? Math.max(2, Style.normalBorderWidth * 2) : Style.normalBorderWidth
+                border.color: current ? root.accent : Util.alpha(root.fg, 0.18)
+                opacity: usable ? 1.0 : 0.5
+                Behavior on color { ColorAnimation { duration: 140 } }
+
+                Column {
+                  id: modeCol
+                  anchors.centerIn: parent
+                  width: parent.width - Style.space(8)
+                  spacing: Style.space(3)
+
+                  Text {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    textFormat: Text.PlainText
+                    text: Model.profileGlyph(modeTile.modelData)
+                    color: modeTile.current ? root.accent : root.fg
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.title
+                  }
+
+                  Text {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    textFormat: Text.PlainText
+                    text: Model.profileLabel(modeTile.modelData, root.hw.profile.gmodeForced)
+                    color: modeTile.current ? root.fg : root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: modeTile.current
+                    elide: Text.ElideRight
+                  }
+                }
+
+                MouseArea {
+                  id: modeMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  enabled: modeTile.usable
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: if (root.service) root.service.setProfile(modeTile.modelData)
+                }
+              }
+            }
           }
 
           Text {
             width: parent.width
             wrapMode: Text.Wrap
-            text: "Or by hand: cd packaging/bin && makepkg -si"
-            color: Qt.darker(root.fg, 1.8)
+            visible: root.service ? root.service.profileWarning !== "" : false
+            text: "󰀦  " + (root.service ? root.service.profileWarning : "")
+            color: root.urgentColor
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
         }
 
-        Row {
+        Rectangle {
           id: tabStrip
           width: parent.width
-          spacing: Style.space(4)
+          height: tabRow.implicitHeight + Style.space(6)
           visible: !root.settingsOpen
+          radius: Math.max(Style.cornerRadius, Style.space(4))
+          color: Style.normalFillFor(root.fg, root.accent)
+          border.color: Util.alpha(root.fg, 0.15)
+          border.width: Style.normalBorderWidth
 
-          Repeater {
-            model: root.tabs
+          Row {
+            id: tabRow
+            anchors.centerIn: parent
+            width: parent.width - Style.space(6)
+            spacing: Style.space(3)
 
-            Button {
-              required property var modelData
-              text: modelData.label
-              selected: root.tab === modelData.key
-              bordered: true
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              horizontalPadding: Style.space(10)
-              verticalPadding: Style.space(3)
-              onClicked: root.setTab(modelData.key)
+            Repeater {
+              model: root.tabs
+
+              Rectangle {
+                id: tabTile
+                required property var modelData
+                readonly property bool current: root.tab === modelData.key
+                width: (tabRow.width - tabRow.spacing * (root.tabs.length - 1)) / root.tabs.length
+                height: tabLabel.implicitHeight + Style.space(12)
+                radius: Math.max(Style.cornerRadius - 2, Style.space(3))
+                color: current ? Util.alpha(root.fg, 0.14) : (tabMouse.containsMouse ? Util.alpha(root.fg, 0.06) : "transparent")
+                Behavior on color { ColorAnimation { duration: 120 } }
+
+                Text {
+                  id: tabLabel
+                  anchors.centerIn: parent
+                  textFormat: Text.PlainText
+                  text: tabTile.modelData.icon + "  " + tabTile.modelData.label
+                  color: tabTile.current ? root.fg : root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: tabTile.current
+                }
+
+                Rectangle {
+                  visible: tabTile.current
+                  anchors.bottom: parent.bottom
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  width: Style.space(24)
+                  height: Math.max(2, Style.space(2))
+                  radius: height / 2
+                  color: root.accent
+                }
+
+                MouseArea {
+                  id: tabMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.setTab(tabTile.modelData.key)
+                }
+              }
             }
           }
         }
@@ -729,41 +854,8 @@ Panel {
         Column {
           id: fansTab
           width: parent.width
-          spacing: Style.space(10)
+          spacing: Style.space(12)
           visible: root.tab === "fans" && !root.settingsOpen
-
-          Flow {
-            width: parent.width
-            spacing: Style.space(4)
-
-            Repeater {
-              model: root.service ? root.service.profileChoices : []
-
-              Button {
-                required property var modelData
-                text: Model.profileLabel(modelData, root.hw.profile.gmodeForced)
-                iconText: Model.profileGlyph(modelData)
-                selected: root.hw.profile.current === modelData
-                enabled: root.available && root.hw.profile.writable
-                bordered: true
-                foreground: root.fg
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                onClicked: if (root.service) root.service.setProfile(modelData)
-              }
-            }
-
-          }
-
-          Text {
-            width: parent.width
-            wrapMode: Text.Wrap
-            visible: root.service ? root.service.profileWarning !== "" : false
-            text: root.service ? root.service.profileWarning : ""
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
 
           Row {
             id: fanCards
@@ -798,152 +890,145 @@ Panel {
             }
           }
 
-          PanelSectionHeader { text: "BOOST CURVE"; foreground: root.fg; fontFamily: root.fontFamily }
+          Card {
+            CardTitle {
+              title: "BOOST CURVE"
+              detail: root.hw.curve.active ? "Running" : "Idle"
+              detailColor: root.hw.curve.active ? root.accent : root.dim
 
-          Row {
-            width: parent.width
-            spacing: Style.space(4)
-
-            Button {
-              text: "CPU fan"
-              selected: root.curveFan === "cpu"
-              bordered: true
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              onClicked: { root.curveFan = "cpu"; root.pointCursor = 0 }
-            }
-
-            Button {
-              text: "GPU fan"
-              selected: root.curveFan === "gpu"
-              bordered: true
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              onClicked: { root.curveFan = "gpu"; root.pointCursor = 0 }
-            }
-
-            Button {
-              text: root.hw.curve.active ? "Curve running" : "Curve idle"
-              iconText: root.hw.curve.active ? "󰐊" : "󰏤"
-              selected: root.hw.curve.active
-              bordered: true
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              tooltipText: root.hw.curve.active ? "Stop the curve daemon (x)" : "Apply the curve to start it (a)"
-              onClicked: {
-                if (!root.service) return
-                if (root.hw.curve.active) root.service.stopCurve()
-                else root.service.applyCurve()
-              }
-            }
-          }
-
-          CurveEditor {
-            width: parent.width
-            points: root.curvePoints
-            floorPercent: root.curveFloor
-            currentTemp: root.curveTemp
-            selectedIndex: root.pointCursor
-            editable: root.available
-            fg: root.fg
-            dim: root.dim
-            accent: root.accent
-            alertColor: root.urgentColor
-            fontFamily: root.fontFamily
-            onEdited: function(next) { root.setCurvePoints(next) }
-            onPointPicked: function(index) { root.pointCursor = index }
-          }
-
-          Flow {
-            width: parent.width
-            spacing: Style.space(4)
-
-            Repeater {
-              model: Model.presetNames()
-
-              Button {
-                required property var modelData
-                required property int index
-                text: (index + 1) + " " + modelData.charAt(0).toUpperCase() + modelData.slice(1)
-                bordered: true
+              ButtonGroup {
+                options: [{ value: "cpu", label: "CPU fan" }, { value: "gpu", label: "GPU fan" }]
+                value: root.curveFan
                 foreground: root.fg
+                accent: root.accent
                 fontFamily: root.fontFamily
                 fontSize: Style.font.caption
-                onClicked: root.applyPreset(modelData)
+                focusable: false
+                onChanged: function(v) { root.curveFan = v; root.pointCursor = 0 }
               }
             }
-          }
 
-          ValueSlider {
-            width: parent.width
-            label: "Hysteresis"
-            valueText: (root.service ? root.service.curveHysteresis : 3) + " °C"
-            value: root.service ? root.service.curveHysteresis : 3
-            from: 0
-            to: 15
-            stepSize: 1
-            note: "How far the temperature must fall before the boost steps back down"
-            fg: root.fg
-            dim: root.dim
-            fontFamily: root.fontFamily
-            onMoved: function(next) { if (root.service) root.service.setCurveHysteresis(next) }
-          }
-
-          ValueSlider {
-            width: parent.width
-            label: "Curve interval"
-            valueText: (root.service ? root.service.curveInterval : 2) + " s"
-            value: root.service ? root.service.curveInterval : 2
-            from: 1
-            to: 30
-            stepSize: 1
-            note: "How often the daemon re-evaluates the curve"
-            fg: root.fg
-            dim: root.dim
-            fontFamily: root.fontFamily
-            onMoved: function(next) { if (root.service) root.service.setCurveInterval(next) }
-          }
-
-          Row {
-            width: parent.width
-            spacing: Style.space(6)
-
-            Button {
-              iconText: "󰄬"
-              text: "Apply"
-              bordered: true
-              enabled: root.available
-              foreground: root.fg
+            CurveEditor {
+              width: parent.width
+              points: root.curvePoints
+              floorPercent: root.curveFloor
+              currentTemp: root.curveTemp
+              selectedIndex: root.pointCursor
+              editable: root.available
+              fg: root.fg
+              dim: root.dim
+              accent: root.accent
+              alertColor: root.urgentColor
               fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              tooltipText: "Send the curve to the daemon (a)"
-              onClicked: if (root.service) root.service.applyCurve()
+              onEdited: function(next) { root.setCurvePoints(next) }
+              onPointPicked: function(index) { root.pointCursor = index }
             }
 
-            Button {
-              iconText: "󰜺"
-              text: "Stop"
-              bordered: true
-              enabled: root.available
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              tooltipText: "Hand the fans back to firmware (x)"
-              onClicked: if (root.service) root.service.stopCurve()
+            Item {
+              width: parent.width
+              implicitHeight: Math.max(presetFlow.implicitHeight, curveActions.implicitHeight)
+
+              Flow {
+                id: presetFlow
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width - curveActions.implicitWidth - Style.space(12)
+                spacing: Style.space(4)
+
+                Repeater {
+                  model: Model.presetNames()
+
+                  Button {
+                    required property var modelData
+                    required property int index
+                    text: modelData.charAt(0).toUpperCase() + modelData.slice(1)
+                    tooltipText: "Preset " + (index + 1)
+                    bordered: true
+                    foreground: root.fg
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.caption
+                    onClicked: root.applyPreset(modelData)
+                  }
+                }
+              }
+
+              Row {
+                id: curveActions
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(4)
+
+                Button {
+                  iconText: "󰑓"
+                  bordered: true
+                  foreground: root.fg
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  tooltipText: "Back to the default points (0)"
+                  onClicked: if (root.service) root.service.resetCurve()
+                }
+
+                Button {
+                  iconText: "󰓛"
+                  text: "Stop"
+                  bordered: true
+                  enabled: root.available && root.hw.curve.active
+                  foreground: root.fg
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  tooltipText: "Hand the fans back to firmware (x)"
+                  onClicked: if (root.service) root.service.stopCurve()
+                }
+
+                Button {
+                  iconText: "󰐊"
+                  text: root.hw.curve.active ? "Update" : "Apply"
+                  bordered: true
+                  selected: true
+                  enabled: root.available
+                  foreground: root.fg
+                  accent: root.accent
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  tooltipText: "Send the curve to the daemon (a)"
+                  onClicked: if (root.service) root.service.applyCurve()
+                }
+              }
             }
 
-            Button {
-              iconText: "󰑓"
-              text: "Reset"
-              bordered: true
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              tooltipText: "Back to the default points (0)"
-              onClicked: if (root.service) root.service.resetCurve()
+            Row {
+              width: parent.width
+              spacing: Style.space(16)
+
+              ValueSlider {
+                width: (parent.width - parent.spacing) / 2
+                label: "Hysteresis"
+                valueText: (root.service ? root.service.curveHysteresis : 3) + " °C"
+                value: root.service ? root.service.curveHysteresis : 3
+                from: 0
+                to: 15
+                stepSize: 1
+                note: "Drop needed before the boost steps down"
+                fg: root.fg
+                dim: root.dim
+                fontFamily: root.fontFamily
+                onMoved: function(next) { if (root.service) root.service.setCurveHysteresis(next) }
+              }
+
+              ValueSlider {
+                width: (parent.width - parent.spacing) / 2
+                label: "Interval"
+                valueText: (root.service ? root.service.curveInterval : 2) + " s"
+                value: root.service ? root.service.curveInterval : 2
+                from: 1
+                to: 30
+                stepSize: 1
+                note: "How often the daemon re-reads temperatures"
+                fg: root.fg
+                dim: root.dim
+                fontFamily: root.fontFamily
+                onMoved: function(next) { if (root.service) root.service.setCurveInterval(next) }
+              }
             }
           }
         }
@@ -951,438 +1036,284 @@ Panel {
         Column {
           id: rgbTab
           width: parent.width
-          spacing: Style.space(10)
+          spacing: Style.space(12)
           visible: root.tab === "rgb" && !root.settingsOpen
 
           Text {
             width: parent.width
             wrapMode: Text.Wrap
             visible: !root.rgbConnected
-            text: root.rgbError !== "" ? root.rgbError : "Waiting for the lighting controller"
+            text: "󰀦  " + (root.rgbError !== "" ? root.rgbError : "Waiting for the lighting controller")
             color: root.urgentColor
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
           }
 
-          Row {
-            width: parent.width
-            spacing: Style.space(6)
+          Card {
+            Row {
+              id: switchRow
+              width: parent.width
+              spacing: Style.space(10)
+              readonly property real cell: (width - spacing * 2) / 3
 
-            Toggle {
-              width: (parent.width - parent.spacing) / 2
-              label: "Lighting"
-              description: root.rgb.device.ready ? "" : "No controller found"
-              checked: root.service ? root.service.lightsOn : false
-              enabled: root.rgbConnected
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              titleSize: Style.font.bodySmall
-              descriptionSize: Style.font.caption
-              onClicked: if (root.service) root.service.toggleLights()
+              SwitchTile {
+                width: switchRow.cell
+                icon: "󱄄"
+                title: "Lighting"
+                detail: root.rgb.device.ready ? (root.service && root.service.lightsOn ? "On" : "Off") : "No controller"
+                checked: root.service ? root.service.lightsOn : false
+                enabled: root.rgbConnected
+                onToggled: if (root.service) root.service.toggleLights()
+              }
+
+              SwitchTile {
+                width: switchRow.cell
+                icon: "󰏘"
+                title: "Follow theme"
+                detail: "Uses the accent"
+                checked: root.service ? root.service.themeSync : false
+                enabled: root.rgbConnected
+                onToggled: if (root.service) root.service.toggleThemeSync()
+              }
+
+              SwitchTile {
+                width: switchRow.cell
+                icon: "󰂄"
+                title: "Battery on ⏻"
+                detail: root.service && root.service.batterySync ? root.batteryLine : "Power button is yours"
+                checked: root.service ? root.service.batterySync : true
+                enabled: root.rgbConnected
+                onToggled: if (root.service) root.service.toggleBatterySync()
+              }
             }
 
-            Toggle {
-              width: (parent.width - parent.spacing) / 2
-              label: "Follow theme"
-              checked: root.service ? root.service.themeSync : false
-              enabled: root.rgbConnected
-              foreground: root.fg
+            ValueSlider {
+              width: parent.width
+              label: "Brightness"
+              valueText: (root.service ? root.service.brightness : 100) + "%"
+              value: root.service ? root.service.brightness : 100
+              from: 0
+              to: 100
+              stepSize: 5
+              editable: root.rgbConnected
+              fg: root.fg
+              dim: root.dim
               fontFamily: root.fontFamily
-              titleSize: Style.font.bodySmall
-              descriptionSize: Style.font.caption
-              onClicked: if (root.service) root.service.toggleThemeSync()
+              onMoved: function(next) { if (root.service) root.service.setBrightness(next) }
             }
           }
 
-          Row {
-            id: rgbSubTabStrip
+          Item {
             width: parent.width
-            spacing: Style.space(4)
-            visible: root.kbdPresent
+            implicitHeight: Math.max(surfaceGroup.implicitHeight, surfaceActions.implicitHeight)
 
-            Repeater {
-              model: root.rgbSubTabs
+            ButtonGroup {
+              id: surfaceGroup
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              visible: root.kbdPresent
+              options: [{ value: "keyboard", label: "󰌌  Keyboard" }, { value: "chassis", label: "󰢚  Chassis" }]
+              value: root.rgbSubTabEffective
+              foreground: root.fg
+              accent: root.accent
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              focusable: false
+              onChanged: function(v) { root.setRgbSubTab(v) }
+            }
+
+            Row {
+              id: surfaceActions
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(4)
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                rightPadding: Style.space(6)
+                textFormat: Text.PlainText
+                text: root.paintTarget ? root.paintTarget + " selected" : "Nothing selected"
+                color: root.paintTarget ? root.fg : root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
 
               Button {
-                required property var modelData
-                text: modelData.label
-                selected: root.rgbSubTabEffective === modelData.key
+                text: "All"
                 bordered: true
                 foreground: root.fg
                 fontFamily: root.fontFamily
                 fontSize: Style.font.caption
-                horizontalPadding: Style.space(10)
-                verticalPadding: Style.space(3)
-                onClicked: root.setRgbSubTab(modelData.key)
+                tooltipText: root.rgbSubTabEffective === "keyboard" ? "Select every mapped key (K)" : "Select every region (a)"
+                onClicked: root.rgbSubTabEffective === "keyboard" ? root.selectAllKeys() : root.selectAllRegions()
               }
-            }
-          }
 
-          Column {
-            id: keyboardSurface
-            width: parent.width
-            spacing: Style.space(10)
-            visible: root.rgbSubTabEffective === "keyboard"
-
-            Item {
-              width: parent.width
-              implicitHeight: Math.max(keyboardHeader.implicitHeight, keyboardActions.implicitHeight)
-              visible: root.kbdPresent
-
-              PanelSectionHeader {
-                id: keyboardHeader
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                text: "KEYBOARD"
+              Button {
+                text: "None"
+                bordered: true
                 foreground: root.fg
                 fontFamily: root.fontFamily
-              }
-
-              Row {
-                id: keyboardActions
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(6)
-
-                Button {
-                  text: "Select all"
-                  bordered: true
-                  foreground: root.fg
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.caption
-                  tooltipText: "Select every mapped key (K)"
-                  onClicked: root.selectAllKeys()
-                }
-
-                Button {
-                  text: "Clear"
-                  bordered: true
-                  foreground: root.fg
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.caption
-                  tooltipText: "Clear the key selection (X)"
-                  onClicked: root.clearKeySelection()
-                }
-
-                Button {
-                  text: root.keySelection.length && root.service && root.service.keyOn[root.keySelection[0]] === false ? "Turn on" : "Turn off"
-                  bordered: true
-                  enabled: root.keySelection.length > 0
-                  foreground: root.fg
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.caption
-                  tooltipText: "Toggle the selected keys on or off (p)"
-                  onClicked: root.toggleKeySelectionPower()
+                fontSize: Style.font.caption
+                tooltipText: root.rgbSubTabEffective === "keyboard" ? "Clear the key selection (X)" : "Clear the selection (x)"
+                onClicked: {
+                  if (root.rgbSubTabEffective === "keyboard") {
+                    root.clearKeySelection()
+                    if (root.regionSelection.indexOf("power") !== -1) root.toggleRegionSelection("power")
+                  } else root.clearRegionSelection()
                 }
               }
-            }
 
-            KeyboardMap {
-              width: parent.width
-              visible: root.kbdPresent
-              present: root.kbdPresent
-              keyColors: root.service ? root.service.keyColors : ({})
-              keyOn: root.service ? root.service.keyOn : ({})
-              selection: root.keySelection
-              fg: root.fg
-              dim: root.dim
-              accent: root.accent
-              fontFamily: root.fontFamily
-              powerColor: root.powerButtonColor
-              powerTooltip: root.batteryLine
-              onToggleRequested: function(keyId) { root.toggleKeySelection(keyId) }
-              onDragSelectRequested: function(keyIds) { root.addKeysToSelection(keyIds) }
-              onPowerClicked: if (root.service) root.service.toggleRegionOn(["power"])
-            }
-
-            Text {
-              width: parent.width
-              wrapMode: Text.Wrap
-              visible: root.kbdPresent
-              text: Model.KBD_UNMAPPED_NOTE
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
-          }
-
-          Column {
-            id: chassisSurface
-            width: parent.width
-            spacing: Style.space(10)
-            visible: root.rgbSubTabEffective === "chassis"
-
-            Item {
-              width: parent.width
-              implicitHeight: Math.max(regionsHeader.implicitHeight, regionsActions.implicitHeight)
-
-              PanelSectionHeader {
-                id: regionsHeader
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                text: "REGIONS"
+              Button {
+                visible: root.rgbSubTabEffective === "keyboard"
+                iconText: "󰐥"
+                bordered: true
+                enabled: root.keySelection.length > 0
                 foreground: root.fg
                 fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                tooltipText: "Turn the selected keys on or off (p)"
+                onClicked: root.toggleKeySelectionPower()
               }
-
-              Row {
-                id: regionsActions
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(6)
-
-                Button {
-                  text: "Select all"
-                  bordered: true
-                  foreground: root.fg
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.caption
-                  tooltipText: "Select every region (a)"
-                  onClicked: root.selectAllRegions()
-                }
-
-                Button {
-                  text: "Clear"
-                  bordered: true
-                  foreground: root.fg
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.caption
-                  tooltipText: "Clear the selection (x)"
-                  onClicked: root.clearRegionSelection()
-                }
-              }
-            }
-
-            RegionMap {
-              width: parent.width
-              regions: root.regions
-              swatches: root.regionSwatchMap
-              poweredMap: root.regionPoweredMap
-              selection: root.regionSelection
-              cursorIndex: root.regionCursor
-              fg: root.fg
-              dim: root.dim
-              accent: root.accent
-              fontFamily: root.fontFamily
-              onPicked: function(rowIndex) { root.regionCursor = rowIndex }
-              onToggleRequested: function(regionId) { root.toggleRegionSelection(regionId) }
-              onIdentifyRequested: function(regionId) { if (root.service) root.service.identifyRegion(regionId) }
-              onPowerRequested: function(regionId) { root.setRegionPower([regionId], !root.isRegionOn(regionId)) }
             }
           }
 
-          PanelSectionHeader { text: "COLOUR"; foreground: root.fg; fontFamily: root.fontFamily; topPadding: Style.space(4) }
-
-          Row {
-            id: colorRow
+          KeyboardMap {
             width: parent.width
-            spacing: Style.space(6)
-
-            BorderSurface {
-              width: Style.space(28)
-              height: Style.space(28)
-              radius: Style.cornerRadius
-              anchors.verticalCenter: parent.verticalCenter
-              color: Model.validHex(colorField.text) ? Model.hexPreview(colorField.text) : Util.alpha(root.fg, 0.15)
-              borderSpec: Border.flat(Util.alpha(root.fg, 0.35), Style.normalBorderWidth)
-            }
-
-            TextField {
-              id: colorField
-              width: parent.width - Style.space(28) - wheelToggle.width - applyColor.width - Style.space(18)
-              anchors.verticalCenter: parent.verticalCenter
-              placeholderText: "RRGGBB"
-              foreground: root.fg
-              font.family: root.fontFamily
-              Keys.onPressed: function(event) {
-                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                  root.applyColorField()
-                  event.accepted = true
-                } else if (event.key === Qt.Key_Escape) {
-                  root.refocusPanel()
-                  event.accepted = true
-                }
-              }
-            }
-
-            Button {
-              id: wheelToggle
-              iconText: "󰸌"
-              bordered: true
-              anchors.verticalCenter: parent.verticalCenter
-              foreground: root.pickerOpen ? root.accent : root.fg
-              accent: root.accent
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              tooltipText: root.pickerOpen ? "Hide the colour wheel" : "Pick a colour from the wheel"
-              onClicked: root.pickerOpen = !root.pickerOpen
-            }
-
-            Button {
-              id: applyColor
-              text: "Set"
-              bordered: true
-              enabled: root.rgbConnected
-              anchors.verticalCenter: parent.verticalCenter
-              foreground: root.fg
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              tooltipText: "Apply to the selected regions"
-              onClicked: root.applyColorField()
-            }
-          }
-
-          ColorPicker {
-            width: parent.width
-            expanded: root.pickerOpen
-            hex: colorField.text
-            swatches: root.service ? root.service.themeSwatches : []
-            themeEnabled: root.rgbConnected
-            fg: root.fg
-            accent: root.accent
-            fontFamily: root.fontFamily
-            onPicked: function(nextHex) { colorField.text = nextHex }
-            onThemeColorRequested: if (root.service) root.service.applyThemeColor()
-          }
-
-          ValueSlider {
-            width: parent.width
-            label: "Brightness"
-            valueText: (root.service ? root.service.brightness : 100) + "%"
-            value: root.service ? root.service.brightness : 100
-            from: 0
-            to: 100
-            stepSize: 5
-            editable: root.rgbConnected
+            visible: root.kbdPresent && root.rgbSubTabEffective === "keyboard"
+            present: root.kbdPresent
+            keyColors: root.service ? root.service.keyColors : ({})
+            keyOn: root.service ? root.service.keyOn : ({})
+            selection: root.keySelection
             fg: root.fg
             dim: root.dim
+            accent: root.accent
             fontFamily: root.fontFamily
-            onMoved: function(next) { if (root.service) root.service.setBrightness(next) }
+            powerColor: root.powerButtonColor
+            powerLit: root.powerButtonLit
+            powerSelected: root.regionSelection.indexOf("power") !== -1
+            onToggleRequested: function(keyId) { root.toggleKeySelection(keyId) }
+            onDragSelectRequested: function(keyIds) { root.addKeysToSelection(keyIds) }
+            onPowerClicked: root.pickPowerKey()
           }
 
           Text {
             width: parent.width
             wrapMode: Text.Wrap
-            text: Model.EFFECTS_NOTE
+            visible: root.kbdPresent && root.rgbSubTabEffective === "keyboard"
+            text: "Click or drag across keys to select them. Click ⏻ for the power button" + (root.service && root.service.batterySync ? " once Battery on ⏻ is off." : ".") + " Faded keys have no confirmed LED yet."
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
+          }
+
+          RegionMap {
+            width: parent.width
+            visible: root.rgbSubTabEffective === "chassis"
+            regions: root.regions
+            swatches: root.regionSwatchMap
+            poweredMap: root.regionPoweredMap
+            selection: root.regionSelection
+            cursorIndex: root.regionCursor
+            fg: root.fg
+            dim: root.dim
+            accent: root.accent
+            fontFamily: root.fontFamily
+            onPicked: function(rowIndex) { root.regionCursor = rowIndex }
+            onToggleRequested: function(regionId) {
+              if (regionId === "power" && root.service && root.service.batterySync) { root.pickPowerKey(); return }
+              root.toggleRegionSelection(regionId)
+            }
+            onIdentifyRequested: function(regionId) { if (root.service) root.service.identifyRegion(regionId) }
+            onPowerRequested: function(regionId) { root.setRegionPower([regionId], !root.isRegionOn(regionId)) }
+          }
+
+          ColorPicker {
+            id: colorPicker
+            width: parent.width
+            hex: root.pickedHex
+            swatches: root.service ? root.service.themeSwatches : []
+            themeEnabled: root.rgbConnected
+            canApply: root.rgbConnected && root.paintTarget !== ""
+            targetText: root.paintTarget
+            fg: root.fg
+            dim: root.dim
+            accent: root.accent
+            fontFamily: root.fontFamily
+            onPicked: function(nextHex) { root.pickedHex = nextHex }
+            onApplyRequested: root.applyColorField()
+            onThemeColorRequested: if (root.service) root.service.applyThemeColor()
+            onFieldEscaped: root.refocusPanel()
           }
         }
 
         Column {
           id: powerTab
           width: parent.width
-          spacing: Style.space(10)
+          spacing: Style.space(12)
           visible: root.tab === "power" && !root.settingsOpen
 
-          PanelSectionHeader { text: "THERMAL MODE"; foreground: root.fg; fontFamily: root.fontFamily }
-
-          Flow {
+          Grid {
+            id: statGrid
             width: parent.width
-            spacing: Style.space(4)
+            columns: 4
+            columnSpacing: Style.space(8)
+            rowSpacing: Style.space(8)
+            readonly property real cell: (width - columnSpacing * (columns - 1)) / columns
 
-            Repeater {
-              model: root.service ? root.service.profileChoices : []
-
-              Button {
-                required property var modelData
-                required property int index
-                text: Model.profileLabel(modelData, root.hw.profile.gmodeForced)
-                iconText: Model.profileGlyph(modelData)
-                tooltipText: index < 4 ? "Press " + (index + 1) : ""
-                selected: root.hw.profile.current === modelData
-                enabled: root.available && root.hw.profile.writable
-                bordered: true
-                foreground: root.fg
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                onClicked: if (root.service) root.service.setProfile(modelData)
-              }
-            }
-          }
-
-          PanelSectionHeader { text: "READOUTS"; foreground: root.fg; fontFamily: root.fontFamily; topPadding: Style.space(4) }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(6)
-
-            ReadoutRow {
-              width: parent.width
-              label: "CPU temperature"
+            StatTile {
+              width: statGrid.cell
+              icon: "󰻠"
+              label: "CPU"
               value: Model.formatTemp(root.cpuTemp, true)
+              sub: Model.formatClock(Model.cpuClock(root.hw))
               alert: root.cpuTemp !== null && root.cpuTemp >= root.hotTemp
               muted: root.stale
-              fg: root.fg
-              dim: root.dim
-              alertColor: root.urgentColor
-              fontFamily: root.fontFamily
             }
-
-            ReadoutRow {
-              width: parent.width
-              label: "CPU clock"
-              value: Model.formatClock(Model.cpuClock(root.hw))
-              muted: true
-              fg: root.fg
-              dim: root.dim
-              fontFamily: root.fontFamily
-            }
-
-            ReadoutRow {
-              width: parent.width
-              label: "GPU temperature"
+            StatTile {
+              width: statGrid.cell
+              icon: "󰢮"
+              label: "GPU"
               value: Model.formatTemp(root.gpuTemp, true)
+              sub: root.hw.gpu.available ? Model.formatWatts(root.hw.gpu.draw, 1) + " draw" : (root.hw.gpu.asleep ? "asleep, saving power" : "no reading")
               alert: root.gpuTemp !== null && root.gpuTemp >= root.hotTemp
               muted: root.stale
-              fg: root.fg
-              dim: root.dim
-              alertColor: root.urgentColor
-              fontFamily: root.fontFamily
             }
-
-            ReadoutRow {
-              width: parent.width
-              label: "GPU power draw"
-              value: Model.formatWatts(root.hw.gpu.draw, 1)
-              muted: !root.hw.gpu.available
-              fg: root.fg
-              dim: root.dim
-              fontFamily: root.fontFamily
-            }
-
-            ReadoutRow {
-              width: parent.width
-              label: "GPU power limit"
+            StatTile {
+              width: statGrid.cell
+              icon: "󱐋"
+              label: "GPU limit"
               value: Model.formatWatts(root.hw.gpu.limit)
-              note: root.hw.gpu.available ? Model.PL_LOCKED_NOTE + ", default " + Model.formatWatts(root.hw.gpu.defaultLimit) : ""
+              sub: root.hw.gpu.available ? "default " + Model.formatWatts(root.hw.gpu.defaultLimit) : Model.PL_LOCKED_NOTE
               muted: true
-              fg: root.fg
-              dim: root.dim
-              fontFamily: root.fontFamily
+            }
+            StatTile {
+              width: statGrid.cell
+              icon: "󰈐"
+              label: "Fans"
+              value: Model.maxRpm(root.hw) > 0 ? Model.maxRpm(root.hw) + " rpm" : "Stopped"
+              sub: "CPU " + (root.cpuFan ? root.cpuFan.percent : 0) + "% · GPU " + (root.gpuFan ? root.gpuFan.percent : 0) + "%"
+              muted: root.stale
             }
           }
 
-          PanelSectionHeader { text: "POWER LIMITS"; foreground: root.fg; fontFamily: root.fontFamily; topPadding: Style.space(4) }
+          Card {
+            CardTitle {
+              title: "CPU POWER LIMITS"
+              detail: root.hw.power.available ? "RAPL" : "Unavailable"
+            }
 
-          Text {
-            width: parent.width
-            wrapMode: Text.Wrap
-            visible: !root.hw.power.available
-            text: "The RAPL interface is not readable on this machine"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(8)
-            visible: root.hw.power.available
+            Text {
+              width: parent.width
+              wrapMode: Text.Wrap
+              visible: !root.hw.power.available
+              text: "The RAPL interface is not readable on this machine"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
 
             Repeater {
-              model: root.constraints
+              model: root.hw.power.available ? root.constraints : []
 
               ValueSlider {
                 required property var modelData
@@ -1407,103 +1338,168 @@ Panel {
             }
           }
 
-          Toggle {
-            width: parent.width
-            label: "Intel turbo"
-            description: root.hw.turbo.available ? "Lets the cores boost above base clock" : "no_turbo is not readable on this machine"
-            checked: root.hw.turbo.enabled
-            enabled: root.hw.turbo.available && root.available
-            foreground: root.fg
-            fontFamily: root.fontFamily
-            titleSize: Style.font.body
-            onClicked: if (root.service) root.service.toggleTurbo()
+          Card {
+            edge: root.powerCursor >= root.constraints.length ? root.accent : Util.alpha(root.fg, 0.15)
+
+            SwitchTile {
+              width: parent.width
+              icon: "󰓅"
+              title: "Intel turbo"
+              detail: root.hw.turbo.available ? "Boost above base clock. Off runs cooler and quieter." : "no_turbo is not readable on this machine"
+              checked: root.hw.turbo.enabled
+              enabled: root.hw.turbo.available && root.available
+              onToggled: if (root.service) root.service.toggleTurbo()
+            }
           }
         }
 
         Column {
           id: settingsColumn
           width: parent.width
-          spacing: Style.space(8)
+          spacing: Style.space(12)
           visible: root.settingsOpen
 
-          PanelSectionHeader { text: "PLUGIN SETTINGS"; foreground: root.fg; fontFamily: root.fontFamily }
+          Card {
+            CardTitle { title: "BAR WIDGET" }
 
-          Text {
-            textFormat: Text.PlainText
-            text: "Seconds between hardware polls"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
+            Text {
+              width: parent.width
+              wrapMode: Text.Wrap
+              textFormat: Text.PlainText
+              text: "What the bar shows. Pick any, in this order. Each reading gets its own icon."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
 
-          TextField {
-            id: sPoll
-            width: parent.width
-            placeholderText: "2"
-            foreground: root.fg
-            font.family: root.fontFamily
-            onTextChanged: root.dPoll = text
-            Keys.onPressed: function(event) { root.handleSettingsKey(event) }
-          }
+            Flow {
+              width: parent.width
+              spacing: Style.space(4)
 
-          Text {
-            textFormat: Text.PlainText
-            text: "Temperature that turns the bar widget hot (C)"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
+              Repeater {
+                model: Model.BAR_ITEMS
 
-          TextField {
-            id: sHot
-            width: parent.width
-            placeholderText: "90"
-            foreground: root.fg
-            font.family: root.fontFamily
-            onTextChanged: root.dHot = text
-            Keys.onPressed: function(event) { root.handleSettingsKey(event) }
-          }
-
-          Text {
-            textFormat: Text.PlainText
-            text: "What the bar widget shows"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Row {
-            spacing: Style.space(4)
-
-            Repeater {
-              model: [{ v: "icon", l: "Icon only" }, { v: "temp", l: "Icon and temperature" }, { v: "full", l: "Profile, rpm and temperature" }]
-
-              Button {
-                required property var modelData
-                text: modelData.l
-                selected: root.dDisplay === modelData.v
-                bordered: true
-                focusable: true
-                foreground: root.fg
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                onClicked: root.dDisplay = modelData.v
+                Button {
+                  required property var modelData
+                  readonly property bool on: Model.parseBarItems(root.dDisplay).indexOf(modelData.id) !== -1
+                  iconText: modelData.glyph
+                  text: modelData.label
+                  selected: on
+                  bordered: true
+                  focusable: true
+                  foreground: root.fg
+                  accent: root.accent
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  tooltipText: on ? "Shown in the bar" : "Hidden"
+                  onClicked: root.dDisplay = Model.serializeBarItems(Model.toggleBarItem(root.dDisplay, modelData.id))
+                }
               }
             }
-          }
 
-          Toggle {
-            width: parent.width
-            label: "Follow the Omarchy theme for RGB"
-            description: "Repaint the keyboard when the theme colour changes"
-            checked: root.dThemeRgb
-            foreground: root.fg
-            fontFamily: root.fontFamily
-            titleSize: Style.font.body
-            onClicked: root.dThemeRgb = !root.dThemeRgb
-          }
+            Rectangle {
+              width: previewRow.implicitWidth + Style.space(20)
+              height: previewRow.implicitHeight + Style.space(10)
+              radius: Math.max(Style.cornerRadius, Style.space(3))
+              color: root.bar ? root.bar.background : Color.background
+              border.color: Util.alpha(root.fg, 0.2)
+              border.width: Style.normalBorderWidth
 
-          PanelSeparator { foreground: root.fg }
+              Row {
+                id: previewRow
+                anchors.centerIn: parent
+                spacing: Style.space(10)
+
+                Repeater {
+                  model: Model.barView(root.hw, root.health, root.dDisplay, root.hotTemp).segments
+
+                  Row {
+                    required property var modelData
+                    spacing: Style.space(4)
+
+                    Text {
+                      anchors.verticalCenter: parent.verticalCenter
+                      textFormat: Text.PlainText
+                      text: modelData.glyph
+                      color: modelData.alert ? root.urgentColor : (root.bar ? root.bar.foreground : root.fg)
+                      font.family: root.fontFamily
+                      font.pixelSize: modelData.id === "logo" ? Style.bar.iconFont : Math.round(Style.bar.iconFont * 0.8)
+                    }
+
+                    Text {
+                      visible: modelData.text !== ""
+                      anchors.verticalCenter: parent.verticalCenter
+                      textFormat: Text.PlainText
+                      text: modelData.text
+                      color: modelData.alert ? root.urgentColor : (root.bar ? root.bar.foreground : root.fg)
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                  }
+                }
+              }
+            }
+
+            Row {
+              width: parent.width
+              spacing: Style.space(16)
+
+              Column {
+                width: (parent.width - parent.spacing) / 2
+                spacing: Style.space(6)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: "Hot at (°C, 50 to 110)"
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                TextField {
+                  id: sHot
+                  width: parent.width
+                  placeholderText: "90"
+                  foreground: root.fg
+                  font.family: root.fontFamily
+                  onTextChanged: root.dHot = text
+                  Keys.onPressed: function(event) { root.handleSettingsKey(event) }
+                }
+              }
+
+              Column {
+                width: (parent.width - parent.spacing) / 2
+                spacing: Style.space(6)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: "Poll every (seconds, 1 to 30)"
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                TextField {
+                  id: sPoll
+                  width: parent.width
+                  placeholderText: "2"
+                  foreground: root.fg
+                  font.family: root.fontFamily
+                  onTextChanged: root.dPoll = text
+                  Keys.onPressed: function(event) { root.handleSettingsKey(event) }
+                }
+              }
+            }
+
+            Text {
+              width: parent.width
+              wrapMode: Text.Wrap
+              text: "Lighting switches (follow theme, battery on the power button) live on the Lighting tab."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
 
           Item {
             width: parent.width
@@ -1519,8 +1515,10 @@ Panel {
                 iconText: "󰆓"
                 text: "Save"
                 bordered: true
+                selected: true
                 focusable: true
                 foreground: root.fg
+                accent: root.accent
                 fontFamily: root.fontFamily
                 fontSize: Style.font.caption
                 tooltipText: "Enter"
@@ -1560,7 +1558,7 @@ Panel {
           textFormat: Text.PlainText
           visible: root.service ? root.service.actionStatus !== "" : false
           text: root.service ? root.service.actionStatus : ""
-          color: root.service && root.service.actionError ? root.urgentColor : root.dim
+          color: root.service && root.service.actionError ? root.urgentColor : root.fg
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           wrapMode: Text.Wrap
@@ -1575,6 +1573,192 @@ Panel {
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
         }
+      }
+    }
+  }
+
+  component Card: Rectangle {
+    id: card
+    default property alias content: cardBody.data
+    property color edge: Util.alpha(root.fg, 0.15)
+    width: parent ? parent.width : 0
+    implicitHeight: cardBody.implicitHeight + Style.space(24)
+    radius: Math.max(Style.cornerRadius, Style.space(4))
+    color: Style.normalFillFor(root.fg, root.accent)
+    border.color: card.edge
+    border.width: Style.normalBorderWidth
+
+    Column {
+      id: cardBody
+      x: Style.space(12)
+      y: Style.space(12)
+      width: card.width - Style.space(24)
+      spacing: Style.space(10)
+    }
+  }
+
+  component CardTitle: Item {
+    id: ct
+    property string title: ""
+    property string detail: ""
+    property color detailColor: root.dim
+    default property alias trailing: ctTrailing.data
+    width: parent ? parent.width : 0
+    implicitHeight: Math.max(ctTitle.implicitHeight, ctTrailing.implicitHeight)
+
+    Row {
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(8)
+
+      Text {
+        id: ctTitle
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: ct.title
+        color: root.fg
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+        font.letterSpacing: 1.4
+      }
+
+      Text {
+        visible: ct.detail !== ""
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: "· " + ct.detail
+        color: ct.detailColor
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+    }
+
+    Row {
+      id: ctTrailing
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(4)
+    }
+  }
+
+  component SwitchTile: Item {
+    id: st
+    property string icon: ""
+    property string title: ""
+    property string detail: ""
+    property bool checked: false
+    signal toggled()
+    implicitHeight: Math.max(stText.implicitHeight, stSwitch.implicitHeight)
+    opacity: enabled ? 1.0 : 0.5
+
+    Text {
+      id: stIcon
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
+      text: st.icon
+      color: st.checked ? root.accent : root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.title
+    }
+
+    Column {
+      id: stText
+      anchors.left: stIcon.right
+      anchors.leftMargin: Style.space(8)
+      anchors.right: stSwitch.left
+      anchors.rightMargin: Style.space(6)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(1)
+
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        text: st.title
+        color: root.fg
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        font.bold: true
+        elide: Text.ElideRight
+      }
+
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        text: st.detail
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        elide: Text.ElideRight
+      }
+    }
+
+    ToggleSwitch {
+      id: stSwitch
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      checked: st.checked
+      interactive: st.enabled
+      foreground: root.fg
+      accent: root.accent
+      onToggled: st.toggled()
+    }
+  }
+
+  component StatTile: Rectangle {
+    id: tile
+    property string icon: ""
+    property string label: ""
+    property string value: ""
+    property string sub: ""
+    property bool alert: false
+    property bool muted: false
+    implicitHeight: tileCol.implicitHeight + Style.space(20)
+    radius: Math.max(Style.cornerRadius, Style.space(4))
+    color: tile.alert ? Util.alpha(root.urgentColor, 0.12) : Style.normalFillFor(root.fg, root.accent)
+    border.color: tile.alert ? root.urgentColor : Util.alpha(root.fg, 0.15)
+    border.width: Style.normalBorderWidth
+
+    Column {
+      id: tileCol
+      x: Style.space(10)
+      y: Style.space(10)
+      width: tile.width - Style.space(20)
+      spacing: Style.space(4)
+
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        text: tile.icon + "  " + tile.label.toUpperCase()
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+        font.letterSpacing: 1.1
+        elide: Text.ElideRight
+      }
+
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        text: tile.value || "-"
+        color: tile.alert ? root.urgentColor : root.fg
+        opacity: tile.muted && !tile.alert ? 0.75 : 1.0
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.title
+        font.bold: true
+        elide: Text.ElideRight
+      }
+
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        text: tile.sub
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        elide: Text.ElideRight
       }
     }
   }
